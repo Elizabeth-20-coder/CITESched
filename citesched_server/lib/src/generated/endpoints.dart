@@ -23,6 +23,7 @@ import '../endpoints/student_endpoint.dart' as _i10;
 import '../endpoints/student_schedule_endpoint.dart' as _i11;
 import '../endpoints/timetable_endpoint.dart' as _i12;
 import '../greetings/greeting_endpoint.dart' as _i13;
+import '../auth/google_idp_endpoint.dart' as _i27;
 import 'package:citesched_server/src/generated/faculty.dart' as _i14;
 import 'package:citesched_server/src/generated/student.dart' as _i15;
 import 'package:citesched_server/src/generated/room.dart' as _i16;
@@ -50,6 +51,12 @@ class Endpoints extends _i1.EndpointDispatch {
         ..initialize(
           server,
           'emailIdp',
+          null,
+        ),
+      'googleIdp': _i27.GoogleIdpEndpoint()
+        ..initialize(
+          server,
+          'googleIdp',
           null,
         ),
       'jwtRefresh': _i3.JwtRefreshEndpoint()
@@ -285,6 +292,36 @@ class Endpoints extends _i1.EndpointDispatch {
                         params['finishPasswordResetToken'],
                     newPassword: params['newPassword'],
                   ),
+        ),
+      },
+    );
+    connectors['googleIdp'] = _i1.EndpointConnector(
+      name: 'googleIdp',
+      endpoint: endpoints['googleIdp']!,
+      methodConnectors: {
+        'login': _i1.MethodConnector(
+          name: 'login',
+          params: {
+            'idToken': _i1.ParameterDescription(
+              name: 'idToken',
+              type: _i1.getType<String>(),
+              nullable: false,
+            ),
+            'accessToken': _i1.ParameterDescription(
+              name: 'accessToken',
+              type: _i1.getType<String?>(),
+              nullable: true,
+            ),
+          },
+          call:
+              (
+                _i1.Session session,
+                Map<String, dynamic> params,
+              ) async => (endpoints['googleIdp'] as _i27.GoogleIdpEndpoint).login(
+                session,
+                idToken: params['idToken'],
+                accessToken: params['accessToken'],
+              ),
         ),
       },
     );
@@ -1324,6 +1361,25 @@ class Endpoints extends _i1.EndpointDispatch {
                     studentId: params['studentId'],
                     facultyId: params['facultyId'],
                     section: params['section'],
+                  ),
+        ),
+        'getUserInfoByEmail': _i1.MethodConnector(
+          name: 'getUserInfoByEmail',
+          params: {
+            'email': _i1.ParameterDescription(
+              name: 'email',
+              type: _i1.getType<String>(),
+              nullable: false,
+            ),
+          },
+          call:
+              (
+                _i1.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['setup'] as _i9.SetupEndpoint).getUserInfoByEmail(
+                    session,
+                    email: params['email'],
                   ),
         ),
       },

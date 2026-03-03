@@ -5,6 +5,7 @@ import 'package:serverpod_auth_server/serverpod_auth_server.dart'
     as auth_legacy;
 import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:serverpod_auth_idp_server/providers/email.dart';
+import 'package:serverpod_auth_idp_server/providers/google.dart';
 
 import 'src/generated/endpoints.dart';
 import 'src/generated/protocol.dart';
@@ -23,6 +24,19 @@ void run(List<String> args) async {
   // Initialize authentication services for the server.
   // Token managers will be used to validate and issue authentication keys,
   // and the identity providers will be the authentication options available for users.
+  final identityProviders = <IdentityProviderBuilder>[
+    // Configure the email identity provider for email/password authentication.
+    EmailIdpConfigFromPasswords(
+      sendRegistrationVerificationCode: _sendRegistrationCode,
+      sendPasswordResetVerificationCode: _sendPasswordResetCode,
+      onAfterAccountCreated: _onAfterAccountCreated,
+    ),
+  ];
+  // Enable Google IdP only if a client secret is configured in passwords.yaml.
+  if (pod.getPassword('googleClientSecret') != null) {
+    identityProviders.add(GoogleIdpConfigFromPasswords());
+  }
+
   pod.initializeAuthServices(
     tokenManagerBuilders: [
       // Use ServerSideSessions for authentication keys towards the server.
@@ -30,14 +44,7 @@ void run(List<String> args) async {
       // Use JWT for authentication keys towards the server.
       JwtConfigFromPasswords(),
     ],
-    identityProviderBuilders: [
-      // Configure the email identity provider for email/password authentication.
-      EmailIdpConfigFromPasswords(
-        sendRegistrationVerificationCode: _sendRegistrationCode,
-        sendPasswordResetVerificationCode: _sendPasswordResetCode,
-        onAfterAccountCreated: _onAfterAccountCreated,
-      ),
-    ],
+    identityProviderBuilders: identityProviders,
   );
 
   // Setup a default page at the web root.

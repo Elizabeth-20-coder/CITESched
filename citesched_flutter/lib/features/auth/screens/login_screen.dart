@@ -17,6 +17,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _idController = TextEditingController();
   final _passwordController = TextEditingController();
+  late final GoogleAuthController _googleAuthController;
 
   bool _isFaculty = true; // Toggle state
   bool _obscurePassword = true;
@@ -109,6 +110,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         // Update the auth provider (though the listener might handle it now)
         final authNotifier = ref.read(authProvider.notifier);
         authNotifier.updateUserInfo(result.userInfo);
+        authNotifier.setSelectedRole(_isFaculty ? 'faculty' : 'student');
 
         if (mounted) {
           setState(() {
@@ -134,8 +136,273 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _signInWithGoogle() async {
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      await _googleAuthController.signIn();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Google sign-in failed: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleGoogleAuthenticated() async {
+    try {
+      final profile = await client.modules.serverpod_auth_core.userProfileInfo
+          .get();
+      final email = profile.email;
+      final displayName = profile.fullName ?? profile.userName;
+
+      final authNotifier = ref.read(authProvider.notifier);
+      UserInfo? userInfo;
+      if (email != null && email.isNotEmpty) {
+        userInfo = await client.setup.getUserInfoByEmail(email: email);
+      }
+      if (userInfo != null) {
+        authNotifier.updateUserInfo(userInfo);
+      }
+
+      final roles = _rolesFromScopes(userInfo?.scopeNames ?? const []);
+      String? selectedRole;
+      if (roles.isEmpty) {
+        selectedRole = await _showRoleSelectionDialog(
+          const ['faculty', 'student', 'admin'],
+        );
+        if (selectedRole == null) {
+          await client.auth.signOutDevice();
+          authNotifier.updateUserInfo(null);
+          return;
+        }
+
+        final completed = await _completeGoogleProfile(
+          selectedRole,
+          email: email,
+          displayName: displayName,
+        );
+        if (!completed) {
+          throw Exception('Failed to set up account details.');
+        }
+
+        if (email == null || email.isEmpty) {
+          throw Exception('Missing email from Google profile.');
+        }
+        final refreshedInfo = await client.setup.getUserInfoByEmail(
+          email: email,
+        );
+        if (refreshedInfo == null) {
+          throw Exception('Unable to refresh user info after setup.');
+        }
+        authNotifier.updateUserInfo(refreshedInfo);
+      } else {
+        selectedRole = await _showRoleSelectionDialog(roles);
+      }
+      if (selectedRole == null) {
+        await client.auth.signOutDevice();
+        authNotifier.updateUserInfo(null);
+        return;
+      }
+
+      authNotifier.setSelectedRole(selectedRole);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
+      await client.auth.signOutDevice();
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<bool> _completeGoogleProfile(
+    String role, {
+    String? email,
+    String? displayName,
+  }) async {
+    final details = await _showRoleDetailsDialog(
+      role,
+      email: email,
+      displayName: displayName,
+    );
+    if (details == null) return false;
+
+    final name = details['name'] as String? ?? displayName ?? '';
+    final effectiveEmail = details['email'] as String? ?? email ?? '';
+    final studentId = details['studentId'] as String?;
+    final facultyId = details['facultyId'] as String?;
+    final section = details['section'] as String?;
+
+    if (name.trim().isEmpty || effectiveEmail.trim().isEmpty) {
+      return false;
+    }
+
+    final tempPassword = 'Google-${DateTime.now().millisecondsSinceEpoch}';
+
+    return await client.setup.createAccount(
+      userName: name.trim(),
+      email: effectiveEmail.trim(),
+      password: tempPassword,
+      role: role,
+      studentId: studentId?.trim().isEmpty == true ? null : studentId?.trim(),
+      facultyId: facultyId?.trim().isEmpty == true ? null : facultyId?.trim(),
+      section: section?.trim().isEmpty == true ? null : section?.trim(),
+    );
+  }
+
+  Future<Map<String, String>?> _showRoleDetailsDialog(
+    String role, {
+    String? email,
+    String? displayName,
+  }) {
+    final nameController = TextEditingController(text: displayName ?? '');
+    final emailController = TextEditingController(text: email ?? '');
+    final idController = TextEditingController();
+    final sectionController = TextEditingController();
+
+    return showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            role == 'student'
+                ? 'Student Details'
+                : role == 'faculty'
+                    ? 'Faculty Details'
+                    : 'Admin Details',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Full Name'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: idController,
+                  decoration: InputDecoration(
+                    labelText:
+                        role == 'student' ? 'Student Number' : 'Faculty ID',
+                  ),
+                ),
+                if (role == 'student') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: sectionController,
+                    decoration: const InputDecoration(labelText: 'Section'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: GoogleFonts.poppins()),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {
+                  'name': nameController.text,
+                  'email': emailController.text,
+                  'studentId': role == 'student' ? idController.text : '',
+                  'facultyId': role == 'student' ? '' : idController.text,
+                  'section': sectionController.text,
+                });
+              },
+              child: Text('Continue', style: GoogleFonts.poppins()),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  List<String> _rolesFromScopes(Iterable<String> scopes) {
+    final allowed = <String>{'admin', 'faculty', 'student'};
+    return scopes.where(allowed.contains).toList();
+  }
+
+  Future<String?> _showRoleSelectionDialog(List<String> roles) {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Select Role',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: roles.map((role) {
+              final label = role == 'admin'
+                  ? 'Administrator'
+                  : role == 'faculty'
+                      ? 'Faculty'
+                      : 'Student';
+              return Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context, role),
+                  child: Text(label, style: GoogleFonts.poppins()),
+                ),
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: GoogleFonts.poppins()),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initGoogleSignIn();
+    _googleAuthController = GoogleAuthController(
+      client: client,
+      onAuthenticated: _handleGoogleAuthenticated,
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = error.toString();
+          _isLoading = false;
+        });
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _googleAuthController.dispose();
     _idController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -503,44 +770,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                               const SizedBox(height: 24),
 
-                              // Google Button (Fixed Colors)
-                              InkWell(
-                                onTap: () {
-                                  // Add Google Login Logic Here
+                              // Google Button (uses platform-safe widget)
+                              GoogleSignInWidget(
+                                controller: _googleAuthController,
+                                theme: _isDarkMode
+                                    ? GSIButtonTheme.filledBlack
+                                    : GSIButtonTheme.outline,
+                                size: GSIButtonSize.large,
+                                text: GSIButtonText.continueWith,
+                                shape: GSIButtonShape.pill,
+                                logoAlignment: GSIButtonLogoAlignment.center,
+                                minimumWidth: 320,
+                                buttonWrapper: ({
+                                  required GoogleSignInStyle style,
+                                  required Widget child,
+                                  required VoidCallback? onPressed,
+                                }) {
+                                  return Container(
+                                    height: 50,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: googleBtnBg,
+                                      border: Border.all(
+                                        color: googleBtnBorder,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: child,
+                                  );
                                 },
-                                child: Container(
-                                  width: double.infinity,
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    color:
-                                        googleBtnBg, // White (Light) vs Transparent (Dark)
-                                    border: Border.all(color: googleBtnBorder),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Image.network(
-                                        'https://developers.google.com/identity/images/g-logo.png',
-                                        height: 20,
-                                        errorBuilder: (ctx, err, stack) =>
-                                            const Icon(
-                                              Icons.g_mobiledata,
-                                              color: Colors.blue,
-                                            ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Text(
-                                        "Sign in with Google",
-                                        style: GoogleFonts.poppins(
-                                          color:
-                                              googleBtnText, // Black (Light) vs White (Dark)
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
                               ),
                             ],
                           ),
@@ -555,6 +813,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _initGoogleSignIn() async {
+    try {
+      await client.auth.initializeGoogleSignIn(
+        clientId:
+            '787281029476-efu9h96a0libvk8o0ubhsluh7u09fnen.apps.googleusercontent.com',
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Google Sign-In init failed: $e';
+        });
+      }
+    }
   }
 
   Widget _buildRoleBtn(

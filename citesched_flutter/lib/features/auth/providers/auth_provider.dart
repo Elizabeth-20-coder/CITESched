@@ -8,6 +8,8 @@ final authProvider = NotifierProvider<AuthNotifier, UserInfo?>(() {
 });
 
 class AuthNotifier extends Notifier<UserInfo?> {
+  String? _selectedRole;
+
   @override
   UserInfo? build() {
     // Initialize auth listener
@@ -22,10 +24,14 @@ class AuthNotifier extends Notifier<UserInfo?> {
     // Check initial state
     if (client.auth.isAuthenticated) {
       try {
-        // Fetch full user info since SessionManager might not have it or have fake UUID
-        final userInfo = await client.modules.auth.status.getUserInfo();
-        if (userInfo != null) {
-          state = userInfo;
+        final profile = await client.modules.serverpod_auth_core.userProfileInfo
+            .get();
+        final email = profile.email;
+        if (email != null && email.isNotEmpty) {
+          final userInfo = await client.setup.getUserInfoByEmail(email: email);
+          if (userInfo != null) {
+            state = userInfo;
+          }
         }
       } catch (e) {
         print('Failed to fetch user info: $e');
@@ -46,8 +52,16 @@ class AuthNotifier extends Notifier<UserInfo?> {
     state = userInfo;
   }
 
+  void setSelectedRole(String? role) {
+    _selectedRole = role;
+  }
+
+  String? get selectedRole => _selectedRole;
+
   Future<void> signOut() async {
     await client.auth.signOutDevice();
+    _selectedRole = null;
+    state = null;
   }
 
   bool get isSignedIn => state != null;

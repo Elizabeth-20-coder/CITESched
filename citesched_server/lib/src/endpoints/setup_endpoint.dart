@@ -167,4 +167,16 @@ class SetupEndpoint extends Endpoint {
       return false;
     }
   }
+
+  /// Fetches a UserInfo by email (case-insensitive).
+  Future<UserInfo?> getUserInfoByEmail(
+    Session session, {
+    required String email,
+  }) async {
+    final emailLower = email.toLowerCase();
+    return await UserInfo.db.findFirstRow(
+      session,
+      where: (t) => t.email.equals(emailLower),
+    );
+  }
 }

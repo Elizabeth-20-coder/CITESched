@@ -225,6 +225,32 @@ class EndpointEmailIdp extends _i1.EndpointEmailIdpBase {
   );
 }
 
+/// By extending [GoogleIdpBaseEndpoint], the Google identity provider endpoints
+/// are made available on the server and enable the corresponding sign-in widget
+/// on the client.
+/// {@category Endpoint}
+class EndpointGoogleIdp extends _i1.EndpointGoogleIdpBase {
+  EndpointGoogleIdp(_i2.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'googleIdp';
+
+  /// Validates a Google ID token and either logs in the associated user or
+  /// creates a new user account if the Google account ID is not yet known.
+  @override
+  _i3.Future<_i4.AuthSuccess> login({
+    required String idToken,
+    required String? accessToken,
+  }) => caller.callServerEndpoint<_i4.AuthSuccess>(
+    'googleIdp',
+    'login',
+    {
+      'idToken': idToken,
+      'accessToken': accessToken,
+    },
+  );
+}
+
 /// By extending [RefreshJwtTokensEndpoint], the JWT token refresh endpoint
 /// is made available on the server and enables automatic token refresh on the client.
 /// {@category Endpoint}
@@ -811,6 +837,13 @@ class EndpointSetup extends _i2.EndpointRef {
       'section': section,
     },
   );
+
+  _i3.Future<_i22.UserInfo?> getUserInfoByEmail({required String email}) =>
+      caller.callServerEndpoint<_i22.UserInfo?>(
+        'setup',
+        'getUserInfoByEmail',
+        {'email': email},
+      );
 }
 
 /// Student-only endpoint for viewing schedules and managing own profile.
@@ -996,6 +1029,7 @@ class Client extends _i2.ServerpodClientShared {
              disconnectStreamsOnLostInternetConnection,
        ) {
     emailIdp = EndpointEmailIdp(this);
+    googleIdp = EndpointGoogleIdp(this);
     jwtRefresh = EndpointJwtRefresh(this);
     admin = EndpointAdmin(this);
     customAuth = EndpointCustomAuth(this);
@@ -1011,6 +1045,8 @@ class Client extends _i2.ServerpodClientShared {
   }
 
   late final EndpointEmailIdp emailIdp;
+
+  late final EndpointGoogleIdp googleIdp;
 
   late final EndpointJwtRefresh jwtRefresh;
 
@@ -1039,6 +1075,7 @@ class Client extends _i2.ServerpodClientShared {
   @override
   Map<String, _i2.EndpointRef> get endpointRefLookup => {
     'emailIdp': emailIdp,
+    'googleIdp': googleIdp,
     'jwtRefresh': jwtRefresh,
     'admin': admin,
     'customAuth': customAuth,

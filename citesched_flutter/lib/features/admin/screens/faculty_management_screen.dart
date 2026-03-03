@@ -850,7 +850,7 @@ class _FacultyManagementScreenState
                                             ),
                                             DataCell(
                                               Text(
-                                                (faculty.program?.name ?? '—')
+                                                (faculty.program?.name ?? '�')
                                                     .toUpperCase(),
                                                 style: GoogleFonts.poppins(
                                                   fontSize: 13,
@@ -994,8 +994,8 @@ class _FacultyManagementScreenState
                                                         ],
                                                         Text(
                                                           hasConflict
-                                                              ? '$conflictCount conflict'
-                                                              : '—',
+                                                              ? '$conflictCount conflicts'
+                                                              : 'No conflicts',
                                                           style:
                                                               GoogleFonts.poppins(
                                                                 fontSize: 10,
@@ -1080,7 +1080,7 @@ class _FacultyManagementScreenState
                                                   Text(
                                                     faculty.maxLoad != null
                                                         ? '${faculty.maxLoad} Units'
-                                                        : '—',
+                                                        : '�',
                                                     style: GoogleFonts.poppins(
                                                       fontSize: 13,
                                                       fontWeight:
@@ -1275,7 +1275,7 @@ class _FacultyManagementScreenState
   }
 
   String _getStatusText(EmploymentStatus? status) {
-    if (status == null) return '—';
+    if (status == null) return '�';
     switch (status) {
       case EmploymentStatus.fullTime:
         return 'Full-Time';
@@ -1519,7 +1519,7 @@ class _FacultyManagementScreenState
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
             ),
             subtitle: Text(
-              (faculty.program?.name ?? '—').toUpperCase(),
+              (faculty.program?.name ?? '�').toUpperCase(),
               style: GoogleFonts.poppins(fontSize: 12),
             ),
             children: [
@@ -1654,6 +1654,8 @@ class _AddFacultyModalState extends State<_AddFacultyModal> {
   final _facultyIdController = TextEditingController();
   final _maxLoadController = TextEditingController();
   final _preferredHoursController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   EmploymentStatus? _employmentStatus;
   FacultyShiftPreference? _shiftPreference;
@@ -1662,7 +1664,7 @@ class _AddFacultyModalState extends State<_AddFacultyModal> {
   bool _isLoading = false;
   String? _customPreferredHours;
 
-  // â”€â”€â”€ Faculty Availability (Day Picker) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Faculty Availability (Day Picker) ───────────────────────────────
   final List<_AvailabilityEntry> _availabilities = [];
   DayOfWeek _selectedDay = DayOfWeek.mon;
   TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
@@ -1675,6 +1677,8 @@ class _AddFacultyModalState extends State<_AddFacultyModal> {
     _facultyIdController.dispose();
     _maxLoadController.dispose();
     _preferredHoursController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -1695,25 +1699,61 @@ class _AddFacultyModalState extends State<_AddFacultyModal> {
       return;
     }
 
+    if (_passwordController.text != _confirmPasswordController.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Passwords do not match'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
 
     try {
-      final faculty = Faculty(
+      final email = _emailController.text.trim();
+      final facultyId = _facultyIdController.text.trim();
+
+      final createdAccount = await client.setup.createAccount(
+        userName: _nameController.text.trim(),
+        email: email,
+        password: _passwordController.text,
+        role: 'faculty',
+        facultyId: facultyId,
+      );
+
+      if (!createdAccount) {
+        throw Exception('Failed to create faculty account.');
+      }
+
+      final facultyList = await client.admin.getAllFaculty(isActive: true);
+      Faculty? existing;
+      for (final f in facultyList) {
+        if (f.email.toLowerCase() == email.toLowerCase() ||
+            f.facultyId.toLowerCase() == facultyId.toLowerCase()) {
+          existing = f;
+          break;
+        }
+      }
+
+      if (existing == null) {
+        throw Exception('Faculty profile not found after account creation.');
+      }
+
+      final updated = existing.copyWith(
         name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        facultyId: _facultyIdController.text.trim(),
+        email: email,
+        facultyId: facultyId,
         maxLoad: int.tryParse(_maxLoadController.text) ?? 0,
         employmentStatus: _employmentStatus!,
         shiftPreference: _shiftPreference,
         preferredHours: _customPreferredHours,
-        userInfoId: 0, // Placeholder, will be set by backend
         program: _program!,
         isActive: _isActive,
-        createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
-      final created = await client.admin.createFaculty(faculty);
+      final created = await client.admin.updateFaculty(updated);
 
       // Save faculty availability if any were added
       if (_availabilities.isNotEmpty && created.id != null) {
@@ -2070,6 +2110,48 @@ class _AddFacultyModalState extends State<_AddFacultyModal> {
             ),
             style: GoogleFonts.poppins(fontSize: 15, color: textPrimary),
             validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
+          ),
+          const SizedBox(height: 20),
+          _buildLabel('Password', Icons.lock_outline_rounded, textPrimary),
+          TextFormField(
+            controller: _passwordController,
+            decoration: _buildInputDecoration(
+              'Min 8 characters',
+              bgBody,
+              primaryPurple,
+              textMuted,
+            ),
+            obscureText: true,
+            style: GoogleFonts.poppins(fontSize: 15, color: textPrimary),
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (value!.length < 8) return 'Min 8 chars';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildLabel(
+            'Retype Password',
+            Icons.lock_outline_rounded,
+            textPrimary,
+          ),
+          TextFormField(
+            controller: _confirmPasswordController,
+            decoration: _buildInputDecoration(
+              'Retype password',
+              bgBody,
+              primaryPurple,
+              textMuted,
+            ),
+            obscureText: true,
+            style: GoogleFonts.poppins(fontSize: 15, color: textPrimary),
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (value != _passwordController.text) {
+                return 'Passwords do not match';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 20),
           _buildLabel(
@@ -2695,6 +2777,8 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
   late TextEditingController _facultyIdController;
   late TextEditingController _maxLoadController;
   late TextEditingController _preferredHoursController;
+  late TextEditingController _passwordController;
+  late TextEditingController _confirmPasswordController;
 
   EmploymentStatus? _employmentStatus;
   FacultyShiftPreference? _shiftPreference;
@@ -2715,22 +2799,26 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
     super.initState();
     _nameController = TextEditingController(text: widget.faculty.name);
     _emailController = TextEditingController(text: widget.faculty.email);
-    _facultyIdController = TextEditingController(
-      text: widget.faculty.facultyId,
-    );
+    _facultyIdController = TextEditingController(text: widget.faculty.facultyId);
     _maxLoadController = TextEditingController(
       text: widget.faculty.maxLoad.toString(),
     );
     _preferredHoursController = TextEditingController(
       text: widget.faculty.preferredHours ?? '',
     );
+    _passwordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
     _employmentStatus = widget.faculty.employmentStatus;
-    _shiftPreference =
-        widget.faculty.shiftPreference ?? FacultyShiftPreference.any;
+    _shiftPreference = widget.faculty.shiftPreference ?? FacultyShiftPreference.any;
     _program = widget.faculty.program;
     _isActive = widget.faculty.isActive;
     _customPreferredHours = widget.faculty.preferredHours;
-    _loadExistingAvailability();
+    _loadExistingAvailability();\r\n  }
+  TimeOfDay _timeOfDayFromHHmm(String hhmm) {
+    final parts = hhmm.split(':');
+    final hour = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    return TimeOfDay(hour: hour, minute: minute);
   }
 
   Future<void> _loadExistingAvailability() async {
@@ -2755,23 +2843,17 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
           );
       });
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not load availability: $e'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading availability: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoadingAvailability = false);
     }
-  }
-
-  TimeOfDay _timeOfDayFromHHmm(String hhmm) {
-    final parts = hhmm.split(':');
-    final hour = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
-    final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
-    return TimeOfDay(hour: hour, minute: minute);
   }
 
   @override
@@ -2781,6 +2863,8 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
     _facultyIdController.dispose();
     _maxLoadController.dispose();
     _preferredHoursController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -3162,6 +3246,48 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
             validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
           ),
           const SizedBox(height: 20),
+          _buildLabel('Password', Icons.lock_outline_rounded, textPrimary),
+          TextFormField(
+            controller: _passwordController,
+            decoration: _buildInputDecoration(
+              'Min 8 characters',
+              bgBody,
+              primaryPurple,
+              textMuted,
+            ),
+            obscureText: true,
+            style: GoogleFonts.poppins(fontSize: 15, color: textPrimary),
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (value!.length < 8) return 'Min 8 chars';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildLabel(
+            'Retype Password',
+            Icons.lock_outline_rounded,
+            textPrimary,
+          ),
+          TextFormField(
+            controller: _confirmPasswordController,
+            decoration: _buildInputDecoration(
+              'Retype password',
+              bgBody,
+              primaryPurple,
+              textMuted,
+            ),
+            obscureText: true,
+            style: GoogleFonts.poppins(fontSize: 15, color: textPrimary),
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (value != _passwordController.text) {
+                return 'Passwords do not match';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 20),
           _buildLabel(
             'Max Loads (hours)',
             Icons.access_time_rounded,
@@ -3385,7 +3511,7 @@ class _EditFacultyModalState extends State<_EditFacultyModal> {
     );
   }
 
-  // â”€â”€â”€ Day Picker Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Day Picker Section ──────────────────────────────────────────
   Widget _buildDayPickerSection(
     Color primaryPurple,
     Color textPrimary,

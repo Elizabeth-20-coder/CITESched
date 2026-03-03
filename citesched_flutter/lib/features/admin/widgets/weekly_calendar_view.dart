@@ -408,12 +408,16 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'PREFERRED SLOT',
+                    _buildAssignedSlotLabel(avail, start, end) ??
+                        'PREFERRED SLOT',
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.poppins(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                       color: Colors.black.withOpacity(0.2),
-                      letterSpacing: 1.0,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ],
@@ -1003,6 +1007,54 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
     // Expected format: "08:30" or "14:15"
     final parts = time.split(':');
     return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  String _formatTimeOfDay(TimeOfDay time) {
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final suffix = time.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute$suffix';
+  }
+
+  String? _buildAssignedSlotLabel(
+    FacultyAvailability avail,
+    TimeOfDay prefStart,
+    TimeOfDay prefEnd,
+  ) {
+    final prefStartMinutes = prefStart.hour * 60 + prefStart.minute;
+    final prefEndMinutes = prefEnd.hour * 60 + prefEnd.minute;
+
+    for (final info in schedules) {
+      final ts = info.schedule.timeslot;
+      if (ts == null) continue;
+      if (ts.day != avail.dayOfWeek) continue;
+
+      final tsStart = _parseTime(ts.startTime);
+      final tsEnd = _parseTime(ts.endTime);
+      final tsStartMinutes = tsStart.hour * 60 + tsStart.minute;
+      final tsEndMinutes = tsEnd.hour * 60 + tsEnd.minute;
+
+      if (tsStartMinutes < prefStartMinutes ||
+          tsEndMinutes > prefEndMinutes) {
+        continue;
+      }
+
+      final timeLabel =
+          '${_formatTimeOfDay(tsStart)} - ${_formatTimeOfDay(tsEnd)}';
+      final facultyName =
+          info.schedule.faculty?.name ?? selectedFaculty?.name ?? '';
+      final subjectCode = info.schedule.subject?.code ?? '';
+      final subjectName = info.schedule.subject?.name ?? '';
+
+      return [
+        timeLabel,
+        facultyName,
+        subjectCode,
+        subjectName,
+      ].where((s) => s.trim().isNotEmpty).join(' ');
+    }
+
+    return null;
   }
 
   String _formatHour(int hour) {

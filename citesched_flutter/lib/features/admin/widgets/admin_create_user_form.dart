@@ -23,12 +23,14 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
   final _formKey = GlobalKey<FormState>();
 
   // Form fields
-  final _idController = TextEditingController();
+  final _studentNumberController = TextEditingController();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _courseController = TextEditingController();
+  final _yearLevelController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _sectionController = TextEditingController();
-  late String _selectedRole;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -36,21 +38,30 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
   @override
   void initState() {
     super.initState();
-    _selectedRole = widget.initialRole ?? 'student';
   }
 
   @override
   void dispose() {
-    _idController.dispose();
+    _studentNumberController.dispose();
     _nameController.dispose();
     _emailController.dispose();
+    _courseController.dispose();
+    _yearLevelController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _sectionController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_passwordController.text != _confirmPasswordController.text) {
+      setState(() {
+        _errorMessage = 'Passwords do not match.';
+      });
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -62,21 +73,15 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
         userName: _nameController.text.trim(),
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        role: _selectedRole,
-        studentId: _selectedRole == 'student'
-            ? _idController.text.trim()
-            : null,
-        facultyId: _selectedRole == 'faculty' || _selectedRole == 'admin'
-            ? _idController.text.trim()
-            : null,
-        section:
-            _selectedRole == 'student' &&
-                _sectionController.text.trim().isNotEmpty
+        role: 'student',
+        studentId: _studentNumberController.text.trim(),
+        section: _sectionController.text.trim().isNotEmpty
             ? _sectionController.text.trim()
             : null,
       );
 
       if (success) {
+        await _syncStudentProfile();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -117,6 +122,35 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
     }
   }
 
+  Future<void> _syncStudentProfile() async {
+    final email = _emailController.text.trim().toLowerCase();
+    final studentNumber = _studentNumberController.text.trim();
+    final students = await client.admin.getAllStudents(isActive: true);
+    Student? student;
+    for (final s in students) {
+      if (s.email.toLowerCase() == email ||
+          s.studentNumber.toLowerCase() == studentNumber.toLowerCase()) {
+        student = s;
+        break;
+      }
+    }
+    if (student == null) return;
+
+    final updated = student.copyWith(
+      name: _nameController.text.trim(),
+      email: _emailController.text.trim(),
+      studentNumber: studentNumber,
+      course: _courseController.text.trim(),
+      yearLevel: int.tryParse(_yearLevelController.text) ?? student.yearLevel,
+      section: _sectionController.text.trim().isEmpty
+          ? null
+          : _sectionController.text.trim(),
+      updatedAt: DateTime.now(),
+    );
+
+    await client.admin.updateStudent(updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -131,8 +165,6 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
     final textMuted = isDark
         ? const Color(0xFF94A3B8)
         : const Color(0xFF666666);
-
-    final isStudent = _selectedRole == 'student';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -262,101 +294,16 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
                           ),
                         ),
 
-                      // System Role
+                      // Student Number
                       _buildLabel(
-                        'System Role',
-                        Icons.admin_panel_settings_rounded,
-                        textPrimary,
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: bgBody,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.black.withOpacity(0.05),
-                          ),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _selectedRole,
-                            isExpanded: true,
-                            icon: Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: textMuted,
-                            ),
-                            style: GoogleFonts.poppins(
-                              fontSize: 15,
-                              color: textPrimary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            items: [
-                              DropdownMenuItem(
-                                value: 'student',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.school_rounded,
-                                      size: 18,
-                                      color: primaryPurple,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Text('Student'),
-                                  ],
-                                ),
-                              ),
-                              DropdownMenuItem(
-                                value: 'faculty',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.person_rounded,
-                                      size: 18,
-                                      color: primaryPurple,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Text('Faculty Member'),
-                                  ],
-                                ),
-                              ),
-                              DropdownMenuItem(
-                                value: 'admin',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.admin_panel_settings_rounded,
-                                      size: 18,
-                                      color: primaryPurple,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Text('System Administrator'),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _selectedRole = value);
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Student / Faculty ID
-                      _buildLabel(
-                        isStudent ? 'Student ID' : 'Faculty ID',
+                        'Student Number',
                         Icons.badge_rounded,
                         textPrimary,
                       ),
                       TextFormField(
-                        controller: _idController,
+                        controller: _studentNumberController,
                         decoration: _buildInputDecoration(
-                          isStudent ? '107690' : 'FAC-001',
+                          '107690',
                           bgBody,
                           primaryPurple,
                           textMuted,
@@ -419,30 +366,81 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
                         },
                       ),
                       const SizedBox(height: 20),
+                      // Course / Program
+                      _buildLabel(
+                        'Course / Program',
+                        Icons.school_outlined,
+                        textPrimary,
+                      ),
+                      TextFormField(
+                        controller: _courseController,
+                        decoration: _buildInputDecoration(
+                          'e.g. BSIT, BSCS, BSIS',
+                          bgBody,
+                          primaryPurple,
+                          textMuted,
+                        ),
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          color: textPrimary,
+                        ),
+                        validator: (value) =>
+                            value == null || value.isEmpty ? 'Required' : null,
+                      ),
+                      const SizedBox(height: 20),
 
-                      // Section — only for Student
-                      if (isStudent) ...[
-                        _buildLabel(
-                          'Section',
-                          Icons.group_rounded,
-                          textPrimary,
+                      // Year Level
+                      _buildLabel(
+                        'Year Level',
+                        Icons.format_list_numbered_rounded,
+                        textPrimary,
+                      ),
+                      TextFormField(
+                        controller: _yearLevelController,
+                        decoration: _buildInputDecoration(
+                          '1',
+                          bgBody,
+                          primaryPurple,
+                          textMuted,
                         ),
-                        TextFormField(
-                          controller: _sectionController,
-                          decoration: _buildInputDecoration(
-                            'e.g. BSIT-3A',
-                            bgBody,
-                            primaryPurple,
-                            textMuted,
-                          ),
-                          style: GoogleFonts.poppins(
-                            fontSize: 15,
-                            color: textPrimary,
-                          ),
-                          // Optional — no validator
+                        keyboardType: TextInputType.number,
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          color: textPrimary,
                         ),
-                        const SizedBox(height: 20),
-                      ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Required';
+                          }
+                          if (int.tryParse(value) == null) {
+                            return 'Invalid number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Section
+                      _buildLabel(
+                        'Section',
+                        Icons.group_rounded,
+                        textPrimary,
+                      ),
+                      TextFormField(
+                        controller: _sectionController,
+                        decoration: _buildInputDecoration(
+                          'e.g. BSIT-3A',
+                          bgBody,
+                          primaryPurple,
+                          textMuted,
+                        ),
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          color: textPrimary,
+                        ),
+                        // Optional � no validator
+                      ),
+                      const SizedBox(height: 20),
 
                       // Initial Password
                       _buildLabel(
@@ -466,6 +464,35 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
                         validator: (value) {
                           if (value == null || value.isEmpty) return 'Required';
                           if (value.length < 8) return 'Min 8 chars';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Retype Password
+                      _buildLabel(
+                        'Retype Password',
+                        Icons.lock_outline_rounded,
+                        textPrimary,
+                      ),
+                      TextFormField(
+                        controller: _confirmPasswordController,
+                        decoration: _buildInputDecoration(
+                          'Retype password',
+                          bgBody,
+                          primaryPurple,
+                          textMuted,
+                        ),
+                        obscureText: true,
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          color: textPrimary,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) return 'Required';
+                          if (value != _passwordController.text) {
+                            return 'Passwords do not match';
+                          }
                           return null;
                         },
                       ),
