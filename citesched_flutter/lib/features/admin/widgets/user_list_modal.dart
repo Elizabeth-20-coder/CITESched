@@ -517,7 +517,7 @@ class _UserListModalState extends ConsumerState<UserListModal>
                             if (!isMobile) ...[
                               const SizedBox(width: 8),
                               Text(
-                                'Add User',
+                                'Add Student',
                                 style: GoogleFonts.poppins(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 15,
