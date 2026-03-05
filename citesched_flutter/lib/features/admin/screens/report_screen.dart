@@ -442,7 +442,7 @@ class _FacultyLoadTab extends ConsumerWidget {
                                     ),
                                     DataCell(
                                       Text(
-                                        item.program ?? '—',
+                                        (item.program ?? '-').toUpperCase(),
                                         style: GoogleFonts.poppins(
                                           fontSize: 12,
                                         ),

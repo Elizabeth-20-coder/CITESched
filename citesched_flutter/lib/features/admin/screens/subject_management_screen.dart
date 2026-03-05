@@ -572,7 +572,9 @@ class _SubjectManagementScreenState
                                         DataColumn(label: Text('TITLE')),
                                         DataColumn(label: Text('UNITS')),
                                         DataColumn(label: Text('PROGRAM')),
-                                        DataColumn(label: Text('YEAR/TERM')),
+                                        DataColumn(
+                                          label: Text('YEAR/TERM'),
+                                        ),
                                         DataColumn(label: Text('TYPE')),
                                         DataColumn(label: Text('STUDENTS')),
                                         DataColumn(label: Text('ACTIONS')),
@@ -661,7 +663,9 @@ class _SubjectManagementScreenState
                                             ),
                                             DataCell(Text(subject.name)),
                                             DataCell(
-                                              Text(subject.units.toString()),
+                                              Text(
+                                                subject.units.toString(),
+                                              ),
                                             ),
                                             DataCell(
                                               Text(
@@ -758,7 +762,9 @@ class _SubjectManagementScreenState
                                                         ),
                                                       ),
                                                     ),
-                                                    const SizedBox(width: 8),
+                                                    const SizedBox(
+                                                      width: 8,
+                                                    ),
                                                     Material(
                                                       color: Colors.transparent,
                                                       child: InkWell(

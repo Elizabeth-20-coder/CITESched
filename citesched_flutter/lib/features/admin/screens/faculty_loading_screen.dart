@@ -45,6 +45,40 @@ String _getDayAbbr(DayOfWeek day) {
   }
 }
 
+const Set<String> _labRoomNames = {'IT LAB', 'EMC LAB'};
+const String _lectureRoomName = 'ROOM 1';
+
+String _normalizedRoomName(String value) => value.trim().toUpperCase();
+
+bool _requiresLaboratoryRoom(List<SubjectType> types) {
+  return types.contains(SubjectType.laboratory);
+}
+
+List<SubjectType> _effectiveLoadTypes({
+  required List<SubjectType> selectedLoadTypes,
+  required Subject? selectedSubject,
+}) {
+  if (selectedLoadTypes.isNotEmpty) return selectedLoadTypes;
+  return selectedSubject?.types ?? const <SubjectType>[];
+}
+
+bool _isRoomAllowedForTypes({
+  required Room room,
+  required List<SubjectType> loadTypes,
+}) {
+  final normalizedName = _normalizedRoomName(room.name);
+  if (_requiresLaboratoryRoom(loadTypes)) {
+    return _labRoomNames.contains(normalizedName);
+  }
+  return normalizedName == _lectureRoomName;
+}
+
+bool _isSupportedSchedulingRoom(Room room) {
+  final normalizedName = _normalizedRoomName(room.name);
+  return normalizedName == _lectureRoomName ||
+      _labRoomNames.contains(normalizedName);
+}
+
 String _facultyNameById(List<Faculty> list, int? id) {
   if (id == null) return 'Unknown faculty';
   for (final f in list) {
@@ -113,7 +147,8 @@ int _timeToMinutes(String time) {
     final clockParts = clock.split(':');
     if (clockParts.length < 2) return 0;
     var hour = int.tryParse(clockParts[0]) ?? 0;
-    final minute = int.tryParse(clockParts[1].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    final minute =
+        int.tryParse(clockParts[1].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
     if (hasPm && hour < 12) hour += 12;
     if (hasAm && hour == 12) hour = 0;
@@ -160,8 +195,7 @@ Future<void> _createTimeslotsFromAvailability({
 
     var createdCount = 0;
     for (final avail in availabilityList) {
-      final key =
-          '${avail.dayOfWeek.name}|${avail.startTime}|${avail.endTime}';
+      final key = '${avail.dayOfWeek.name}|${avail.startTime}|${avail.endTime}';
       if (existingKeys.contains(key)) continue;
       final label =
           '${_getDayAbbr(avail.dayOfWeek)} ${avail.startTime}-${avail.endTime}';
@@ -235,8 +269,11 @@ String? _detectAssignmentConflict({
 }) {
   final facultyName = _facultyNameById(facultyList, facultyId);
   final subjectName = _subjectNameById(subjectList, subjectId);
-  final sectionLabel =
-      _sectionLabelById(sectionList, sectionId, sectionCodeFallback);
+  final sectionLabel = _sectionLabelById(
+    sectionList,
+    sectionId,
+    sectionCodeFallback,
+  );
   final timeslotLabel = _timeslotLabelById(timeslotList, timeslotId);
   final roomLabel = _roomNameById(roomList, roomId);
 
@@ -401,26 +438,20 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF0F172A) : const Color(0xFFF8F9FA);
+    final isMobile = ResponsiveHelper.isMobile(context);
 
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         backgroundColor: bgColor,
-        body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: ResponsiveHelper.maxContentWidth(context),
-            ),
-            child: Padding(
-          padding: ResponsiveHelper.pagePadding(context),
+        body: Padding(
+          padding: EdgeInsets.all(isMobile ? 16 : 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
               Container(
-                padding: EdgeInsets.all(
-                  ResponsiveHelper.isMobile(context) ? 14 : 20,
-                ),
+                padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
                   color: maroonColor,
                   borderRadius: BorderRadius.circular(16),
@@ -485,7 +516,11 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
               const SizedBox(height: 24),
 
               // Conflict Warning Banner
-              _buildConflictBanner(schedulesAsync, facultyAsync, allConflicts),
+              _buildConflictBanner(
+                schedulesAsync,
+                facultyAsync,
+                allConflicts,
+              ),
               const SizedBox(height: 20),
 
               // Search and Filter Row
@@ -551,7 +586,10 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                           ),
                           if (_searchQuery.isNotEmpty)
                             IconButton(
-                              icon: Icon(Icons.clear, color: Colors.grey[600]),
+                              icon: Icon(
+                                Icons.clear,
+                                color: Colors.grey[600],
+                              ),
                               onPressed: () {
                                 _searchController.clear();
                                 setState(() {
@@ -580,8 +618,9 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                         ),
                       ),
                       child: facultyAsync.when(
-                        loading: () =>
-                            const Center(child: CircularProgressIndicator()),
+                        loading: () => const Center(
+                          child: CircularProgressIndicator(),
+                        ),
                         error: (error, stack) => const Text('Error'),
                         data: (faculty) => DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -604,7 +643,9 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                                   value: f.id.toString(),
                                   child: Text(
                                     f.name,
-                                    style: GoogleFonts.poppins(fontSize: 14),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -689,8 +730,6 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                 ),
               ),
             ],
-          ),
-            ),
           ),
         ),
       ),
@@ -1182,12 +1221,13 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                                                             subject?.yearLevel
                                                                     ?.toString() ??
                                                                 '-',
-                                                            style: GoogleFonts.poppins(
-                                                              fontSize: 13,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                            ),
+                                                            style:
+                                                                GoogleFonts.poppins(
+                                                                  fontSize: 13,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
                                                           ),
                                                         ),
                                                         DataCell(
@@ -1918,9 +1958,11 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
         // Use centralized conflict service results for professional detail.
         final conflicts = allConflicts.maybeWhen(
           data: (list) => list
-              .map((c) => c.details != null && c.details!.isNotEmpty
-                  ? '${c.message} â€” ${c.details}'
-                  : c.message)
+              .map(
+                (c) => c.details != null && c.details!.isNotEmpty
+                    ? '${c.message}” ${c.details}'
+                    : c.message,
+              )
               .toList(),
           orElse: () => <String>[],
         );
@@ -2132,7 +2174,9 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
     setState(() => _isLoading = true);
 
     try {
-      final sections = ref.read(sectionListProvider).maybeWhen(
+      final sections = ref
+          .read(sectionListProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Section>[],
           );
@@ -2151,26 +2195,75 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
               ),
       );
 
-      final schedules = ref.read(schedulesProvider).maybeWhen(
+      final schedules = ref
+          .read(schedulesProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Schedule>[],
           );
-      final facultyList = ref.read(facultyListProvider).maybeWhen(
+      final facultyList = ref
+          .read(facultyListProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Faculty>[],
           );
-      final subjectList = ref.read(subjectsProvider).maybeWhen(
+      final subjectList = ref
+          .read(subjectsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Subject>[],
           );
-      final roomList = ref.read(roomsProvider).maybeWhen(
+      final roomList = ref
+          .read(roomsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Room>[],
           );
-      final timeslotList = ref.read(timeslotsProvider).maybeWhen(
+      final timeslotList = ref
+          .read(timeslotsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Timeslot>[],
           );
+      Subject? selectedSubject;
+      for (final subject in subjectList) {
+        if (subject.id == _selectedSubjectId) {
+          selectedSubject = subject;
+          break;
+        }
+      }
+
+      final effectiveTypes = _effectiveLoadTypes(
+        selectedLoadTypes: _selectedLoadTypes,
+        selectedSubject: selectedSubject,
+      );
+
+      if (!_isAutoAssign && _selectedRoomId != null) {
+        Room? selectedRoom;
+        for (final room in roomList) {
+          if (room.id == _selectedRoomId) {
+            selectedRoom = room;
+            break;
+          }
+        }
+        if (selectedRoom != null && !_isSupportedSchedulingRoom(selectedRoom)) {
+          throw Exception(
+            'Only IT LAB, EMC LAB, and ROOM 1 are allowed for scheduling.',
+          );
+        }
+        if (selectedRoom != null &&
+            effectiveTypes.isNotEmpty &&
+            !_isRoomAllowedForTypes(
+              room: selectedRoom,
+              loadTypes: effectiveTypes,
+            )) {
+          throw Exception(
+            _requiresLaboratoryRoom(effectiveTypes)
+                ? 'Laboratory subjects can only be assigned to IT LAB or EMC LAB.'
+                : 'Lecture-only subjects can only be assigned to ROOM 1.',
+          );
+        }
+      }
 
       final conflictMessage = _detectAssignmentConflict(
         schedules: schedules,
@@ -2360,8 +2453,11 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                               }
                             }
                             final filtered = filteredById.values.toList()
-                              ..sort((a, b) => _sectionDisplayLabel(a)
-                                  .compareTo(_sectionDisplayLabel(b)));
+                              ..sort(
+                                (a, b) => _sectionDisplayLabel(
+                                  a,
+                                ).compareTo(_sectionDisplayLabel(b)),
+                              );
 
                             if (filtered.isEmpty) {
                               return const Text('No sections available');
@@ -2370,9 +2466,9 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                             final items = filtered.map((s) => s.id!).toList();
                             final initialId =
                                 (_selectedSectionId != null &&
-                                        items.contains(_selectedSectionId))
-                                    ? _selectedSectionId
-                                    : items.first;
+                                    items.contains(_selectedSectionId))
+                                ? _selectedSectionId
+                                : items.first;
 
                             return _buildDropdown<int>(
                               label: 'Section',
@@ -2491,15 +2587,57 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                           loading: () => const CircularProgressIndicator(),
                           error: (error, stack) =>
                               const Text('Error loading rooms'),
-                          data: (roomList) => _buildDropdown<int>(
-                            label: 'Room',
-                            value: _selectedRoomId,
-                            items: roomList.map((r) => r.id!).toList(),
-                            itemLabel: (id) =>
-                                roomList.firstWhere((r) => r.id == id).name,
-                            onChanged: (value) =>
-                                setState(() => _selectedRoomId = value),
-                          ),
+                          data: (roomList) {
+                            final subjects = ref
+                                .read(subjectsProvider)
+                                .maybeWhen(
+                                  data: (list) => list,
+                                  orElse: () => <Subject>[],
+                                );
+                            Subject? selectedSubject;
+                            for (final subject in subjects) {
+                              if (subject.id == _selectedSubjectId) {
+                                selectedSubject = subject;
+                                break;
+                              }
+                            }
+                            final effectiveTypes = _effectiveLoadTypes(
+                              selectedLoadTypes: _selectedLoadTypes,
+                              selectedSubject: selectedSubject,
+                            );
+                            final filteredRooms = effectiveTypes.isEmpty
+                                ? roomList
+                                      .where(_isSupportedSchedulingRoom)
+                                      .toList()
+                                : roomList
+                                      .where(
+                                        (room) => _isRoomAllowedForTypes(
+                                          room: room,
+                                          loadTypes: effectiveTypes,
+                                        ),
+                                      )
+                                      .toList();
+
+                            if (filteredRooms.isEmpty) {
+                              return Text(
+                                _requiresLaboratoryRoom(effectiveTypes)
+                                    ? 'No lab rooms available. Only IT LAB and EMC LAB are allowed.'
+                                    : 'No lecture room available. ROOM 1 is required.',
+                                style: GoogleFonts.poppins(fontSize: 12),
+                              );
+                            }
+
+                            return _buildDropdown<int>(
+                              label: 'Room',
+                              value: _selectedRoomId,
+                              items: filteredRooms.map((r) => r.id!).toList(),
+                              itemLabel: (id) => filteredRooms
+                                  .firstWhere((r) => r.id == id)
+                                  .name,
+                              onChanged: (value) =>
+                                  setState(() => _selectedRoomId = value),
+                            );
+                          },
                         ),
                         const SizedBox(height: 16),
                         timeslotsAsync.when(
@@ -2540,10 +2678,11 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                                       OutlinedButton.icon(
                                         onPressed: () =>
                                             _createTimeslotsFromAvailability(
-                                          ref: ref,
-                                          context: context,
-                                          availabilityList: availabilityList,
-                                        ),
+                                              ref: ref,
+                                              context: context,
+                                              availabilityList:
+                                                  availabilityList,
+                                            ),
                                         icon: const Icon(Icons.auto_fix_high),
                                         label: Text(
                                           'Generate Timeslots',
@@ -2816,26 +2955,75 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
         ),
       );
 
-      final schedules = ref.read(schedulesProvider).maybeWhen(
+      final schedules = ref
+          .read(schedulesProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Schedule>[],
           );
-      final facultyList = ref.read(facultyListProvider).maybeWhen(
+      final facultyList = ref
+          .read(facultyListProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Faculty>[],
           );
-      final subjectList = ref.read(subjectsProvider).maybeWhen(
+      final subjectList = ref
+          .read(subjectsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Subject>[],
           );
-      final roomList = ref.read(roomsProvider).maybeWhen(
+      final roomList = ref
+          .read(roomsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Room>[],
           );
-      final timeslotList = ref.read(timeslotsProvider).maybeWhen(
+      final timeslotList = ref
+          .read(timeslotsProvider)
+          .maybeWhen(
             data: (s) => s,
             orElse: () => <Timeslot>[],
           );
+      Subject? selectedSubject;
+      for (final subject in subjectList) {
+        if (subject.id == _selectedSubjectId) {
+          selectedSubject = subject;
+          break;
+        }
+      }
+
+      final effectiveTypes = _effectiveLoadTypes(
+        selectedLoadTypes: _selectedLoadTypes,
+        selectedSubject: selectedSubject,
+      );
+
+      if (!_isAutoAssign && _selectedRoomId != null) {
+        Room? selectedRoom;
+        for (final room in roomList) {
+          if (room.id == _selectedRoomId) {
+            selectedRoom = room;
+            break;
+          }
+        }
+        if (selectedRoom != null && !_isSupportedSchedulingRoom(selectedRoom)) {
+          throw Exception(
+            'Only IT LAB, EMC LAB, and ROOM 1 are allowed for scheduling.',
+          );
+        }
+        if (selectedRoom != null &&
+            effectiveTypes.isNotEmpty &&
+            !_isRoomAllowedForTypes(
+              room: selectedRoom,
+              loadTypes: effectiveTypes,
+            )) {
+          throw Exception(
+            _requiresLaboratoryRoom(effectiveTypes)
+                ? 'Laboratory subjects can only be assigned to IT LAB or EMC LAB.'
+                : 'Lecture-only subjects can only be assigned to ROOM 1.',
+          );
+        }
+      }
 
       final conflictMessage = _detectAssignmentConflict(
         schedules: schedules,
@@ -3032,8 +3220,11 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                               }
                             }
                             final filtered = filteredById.values.toList()
-                              ..sort((a, b) => _sectionDisplayLabel(a)
-                                  .compareTo(_sectionDisplayLabel(b)));
+                              ..sort(
+                                (a, b) => _sectionDisplayLabel(
+                                  a,
+                                ).compareTo(_sectionDisplayLabel(b)),
+                              );
 
                             if (filtered.isEmpty) {
                               return const Text('No sections available');
@@ -3050,9 +3241,9 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                                 .id!;
                             final initialId =
                                 (_selectedSectionId != null &&
-                                        items.contains(_selectedSectionId))
-                                    ? _selectedSectionId
-                                    : fallbackId;
+                                    items.contains(_selectedSectionId))
+                                ? _selectedSectionId
+                                : fallbackId;
 
                             return _buildDropdown<int>(
                               label: 'Section',
@@ -3171,15 +3362,57 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                           loading: () => const CircularProgressIndicator(),
                           error: (error, stack) =>
                               const Text('Error loading rooms'),
-                          data: (roomList) => _buildDropdown<int>(
-                            label: 'Room',
-                            value: _selectedRoomId,
-                            items: roomList.map((r) => r.id!).toList(),
-                            itemLabel: (id) =>
-                                roomList.firstWhere((r) => r.id == id).name,
-                            onChanged: (value) =>
-                                setState(() => _selectedRoomId = value),
-                          ),
+                          data: (roomList) {
+                            final subjects = ref
+                                .read(subjectsProvider)
+                                .maybeWhen(
+                                  data: (list) => list,
+                                  orElse: () => <Subject>[],
+                                );
+                            Subject? selectedSubject;
+                            for (final subject in subjects) {
+                              if (subject.id == _selectedSubjectId) {
+                                selectedSubject = subject;
+                                break;
+                              }
+                            }
+                            final effectiveTypes = _effectiveLoadTypes(
+                              selectedLoadTypes: _selectedLoadTypes,
+                              selectedSubject: selectedSubject,
+                            );
+                            final filteredRooms = effectiveTypes.isEmpty
+                                ? roomList
+                                      .where(_isSupportedSchedulingRoom)
+                                      .toList()
+                                : roomList
+                                      .where(
+                                        (room) => _isRoomAllowedForTypes(
+                                          room: room,
+                                          loadTypes: effectiveTypes,
+                                        ),
+                                      )
+                                      .toList();
+
+                            if (filteredRooms.isEmpty) {
+                              return Text(
+                                _requiresLaboratoryRoom(effectiveTypes)
+                                    ? 'No lab rooms available. Only IT LAB and EMC LAB are allowed.'
+                                    : 'No lecture room available. ROOM 1 is required.',
+                                style: GoogleFonts.poppins(fontSize: 12),
+                              );
+                            }
+
+                            return _buildDropdown<int>(
+                              label: 'Room',
+                              value: _selectedRoomId,
+                              items: filteredRooms.map((r) => r.id!).toList(),
+                              itemLabel: (id) => filteredRooms
+                                  .firstWhere((r) => r.id == id)
+                                  .name,
+                              onChanged: (value) =>
+                                  setState(() => _selectedRoomId = value),
+                            );
+                          },
                         ),
                         const SizedBox(height: 16),
                         timeslotsAsync.when(
@@ -3220,10 +3453,11 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                                       OutlinedButton.icon(
                                         onPressed: () =>
                                             _createTimeslotsFromAvailability(
-                                          ref: ref,
-                                          context: context,
-                                          availabilityList: availabilityList,
-                                        ),
+                                              ref: ref,
+                                              context: context,
+                                              availabilityList:
+                                                  availabilityList,
+                                            ),
                                         icon: const Icon(Icons.auto_fix_high),
                                         label: Text(
                                           'Generate Timeslots',

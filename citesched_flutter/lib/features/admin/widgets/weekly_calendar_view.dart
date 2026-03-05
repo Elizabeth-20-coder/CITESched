@@ -66,12 +66,13 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
     final earliest = withTimeslot
         .map((s) => _parseTime(s.schedule.timeslot!.startTime))
         .reduce((a, b) {
-      final aMin = a.hour * 60 + a.minute;
-      final bMin = b.hour * 60 + b.minute;
-      return aMin <= bMin ? a : b;
-    });
+          final aMin = a.hour * 60 + a.minute;
+          final bMin = b.hour * 60 + b.minute;
+          return aMin <= bMin ? a : b;
+        });
     final hourHeight = isStudentView ? 64.0 : 100.0;
-    final target = ((earliest.hour - startHour - 1).clamp(0, 24) +
+    final target =
+        ((earliest.hour - startHour - 1).clamp(0, 24) +
             (earliest.minute / 60.0)) *
         hourHeight;
     _verticalController.jumpTo(
@@ -113,8 +114,10 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
         final availableHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight
             : fullGridHeight + headerHeight;
-        final gridViewportHeight =
-            (availableHeight - headerHeight).clamp(0.0, double.infinity);
+        final gridViewportHeight = (availableHeight - headerHeight).clamp(
+          0.0,
+          double.infinity,
+        );
 
         return SingleChildScrollView(
           controller: _horizontalController,
@@ -404,7 +407,10 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
     final start = _parseTime(avail.startTime);
     final end = _parseTime(avail.endTime);
     final isLunchSlot =
-        start.hour == 12 && start.minute == 0 && end.hour == 13 && end.minute == 0;
+        start.hour == 12 &&
+        start.minute == 0 &&
+        end.hour == 13 &&
+        end.minute == 0;
 
     final double top =
         (start.hour - startHour + start.minute / 60.0) * hourHeight;
@@ -459,8 +465,9 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
                     style: GoogleFonts.poppins(
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
-                      color:
-                          isLunchSlot ? Colors.black54 : Colors.black.withOpacity(0.65),
+                      color: isLunchSlot
+                          ? Colors.black54
+                          : Colors.black.withOpacity(0.65),
                       letterSpacing: 0.2,
                       height: 1.2,
                     ),
@@ -619,8 +626,9 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
         hourHeight;
     final double left = 80 + (dayIndex * dayWidth);
 
-    final bool hasAvailabilityViolation =
-        _isOutsidePreferredAvailability(schedule);
+    final bool hasAvailabilityViolation = _isOutsidePreferredAvailability(
+      schedule,
+    );
     final bool hasConflict =
         info.conflicts.isNotEmpty || hasAvailabilityViolation;
     final bool isLunchSlot = _isLunchSlot(schedule, timeslot);
@@ -629,14 +637,14 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
     final Color blockColor = isStudentView
         ? Colors.white
         : hasConflict
-            ? const Color(0xFF2D0000)
-            : Colors.black;
+        ? const Color(0xFF2D0000)
+        : Colors.black;
 
     final Color borderColor = hasConflict
         ? Colors.red.shade400
         : isStudentView
-            ? Colors.black87
-            : Colors.grey[800]!;
+        ? Colors.black87
+        : Colors.grey[800]!;
 
     return Positioned(
       top: top + 2,
@@ -650,21 +658,21 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
           borderRadius: BorderRadius.circular(10),
           child: Container(
             padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: blockColor,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: borderColor,
-                  width: hasConflict ? 2.5 : 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+            decoration: BoxDecoration(
+              color: blockColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: borderColor,
+                width: hasConflict ? 2.5 : 1.5,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -827,8 +835,7 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
       return const SizedBox.shrink();
     }
 
-    final double top =
-        (lunchStartHour - startHour) * hourHeight + 2;
+    final double top = (lunchStartHour - startHour) * hourHeight + 2;
     final double height = (lunchEndHour - lunchStartHour) * hourHeight - 4;
     final double left = 80 + 4;
     final double width = (dayWidth * days.length) - 8;
@@ -843,7 +850,10 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.12),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.black.withOpacity(0.25), width: 1.5),
+            border: Border.all(
+              color: Colors.black.withOpacity(0.25),
+              width: 1.5,
+            ),
           ),
           child: Center(
             child: Text(
@@ -916,7 +926,7 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
                 style: GoogleFonts.poppins(fontSize: 10, color: Colors.black87),
               ),
               Text(
-                room,
+                'Room: $room',
                 style: GoogleFonts.poppins(fontSize: 10, color: Colors.black87),
               ),
             ],
@@ -985,8 +995,7 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
   void _showScheduleDetails(BuildContext context, ScheduleInfo info) {
     final schedule = info.schedule;
     final hasConflict = info.conflicts.isNotEmpty;
-    final hasAvailabilityViolation =
-        _isOutsidePreferredAvailability(schedule);
+    final hasAvailabilityViolation = _isOutsidePreferredAvailability(schedule);
     final shouldShowConflict = hasConflict || hasAvailabilityViolation;
 
     showDialog(
@@ -1145,8 +1154,7 @@ class _WeeklyCalendarViewState extends State<WeeklyCalendarView> {
     int hour = int.tryParse(parts.first) ?? 0;
     int minute = 0;
     if (parts.length > 1) {
-      minute =
-          int.tryParse(parts[1].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      minute = int.tryParse(parts[1].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
     }
 
     if (suffix == 'PM' && hour < 12) hour += 12;

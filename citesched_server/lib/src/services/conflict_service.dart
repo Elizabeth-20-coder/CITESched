@@ -268,7 +268,9 @@ class ConflictService {
 
       if (subject != null && room != null) {
         // 2. Program Mismatch
-        if (subject.program != room.program) {
+        final normalizedRoomName = _normalizeRoomName(room.name);
+        if (subject.program != room.program &&
+            normalizedRoomName != _lectureRoomName) {
           conflicts.add(
             ScheduleConflict(
               type: 'program_mismatch',
@@ -417,19 +419,22 @@ class ConflictService {
             facultyId: schedule.facultyId,
             subjectId: schedule.subjectId,
             details:
-              'Faculty ID ${schedule.facultyId} has no availability window covering this timeslot',
+                'Faculty ID ${schedule.facultyId} has no availability window covering this timeslot',
           ),
         );
       }
 
       // Continuous-block validation: timeslot duration must cover subject total hours (lecture + lab combined)
       if (subject != null) {
-        final timeslot =
-            await Timeslot.db.findById(session, schedule.timeslotId!);
+        final timeslot = await Timeslot.db.findById(
+          session,
+          schedule.timeslotId!,
+        );
         final requiredHours =
             subject.hours ?? subject.units.toDouble() ?? schedule.hours ?? 0;
         if (timeslot != null && requiredHours > 0) {
-          final tsMinutes = _parseTimeToMinutes(timeslot.endTime) -
+          final tsMinutes =
+              _parseTimeToMinutes(timeslot.endTime) -
               _parseTimeToMinutes(timeslot.startTime);
           final tsHours = tsMinutes / 60.0;
           if (tsHours + 1e-6 < requiredHours) {
@@ -516,11 +521,15 @@ class ConflictService {
           final slotLabel = ts != null
               ? '${ts.day.name} ${ts.startTime}-${ts.endTime}'
               : 'timeslot $timeslotId';
-          final occupants = roomSchedules.map((s) {
-            final subj = subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}';
-            final fac = facultyMap[s.facultyId]?.name ?? 'Faculty ${s.facultyId}';
-            return '$subj / $fac / ${s.section}';
-          }).join('; ');
+          final occupants = roomSchedules
+              .map((s) {
+                final subj =
+                    subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}';
+                final fac =
+                    facultyMap[s.facultyId]?.name ?? 'Faculty ${s.facultyId}';
+                return '$subj / $fac / ${s.section}';
+              })
+              .join('; ');
           conflicts.add(
             ScheduleConflict(
               type: 'room_conflict',
@@ -547,7 +556,10 @@ class ConflictService {
               ? '${ts.day.name} ${ts.startTime}-${ts.endTime}'
               : 'timeslot $timeslotId';
           final subjects = facSchedules
-              .map((s) => subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}')
+              .map(
+                (s) =>
+                    subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}',
+              )
               .join(', ');
           conflicts.add(
             ScheduleConflict(
@@ -576,7 +588,10 @@ class ConflictService {
               ? '${ts.day.name} ${ts.startTime}-${ts.endTime}'
               : 'timeslot $timeslotId';
           final subjects = secSchedules
-              .map((s) => subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}')
+              .map(
+                (s) =>
+                    subjectMap[s.subjectId]?.code ?? 'Subject ${s.subjectId}',
+              )
               .join(', ');
           conflicts.add(
             ScheduleConflict(
@@ -595,7 +610,9 @@ class ConflictService {
       var subject = subjectMap[s.subjectId];
       var room = s.roomId != null ? roomMap[s.roomId!] : null;
       if (subject != null && room != null) {
-        if (subject.program != room.program) {
+        final normalizedRoomName = _normalizeRoomName(room.name);
+        if (subject.program != room.program &&
+            normalizedRoomName != _lectureRoomName) {
           conflicts.add(
             ScheduleConflict(
               type: 'program_mismatch',
