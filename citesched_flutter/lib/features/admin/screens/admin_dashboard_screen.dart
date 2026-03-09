@@ -896,4 +896,3 @@ class AdminDashboardScreen extends ConsumerWidget {
     );
   }
 }
-
