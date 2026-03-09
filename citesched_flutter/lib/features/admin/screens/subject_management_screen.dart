@@ -1202,7 +1202,41 @@ class _AddSubjectModalState extends State<_AddSubjectModal> {
   int? _term;
   List<SubjectType> _selectedTypes = [];
   Program _program = Program.it;
+  List<Faculty> _facultyList = [];
+  int? _selectedFacultyId;
   bool _isLoading = false;
+  String? _facultyLoadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFaculty();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _nameController.dispose();
+    _unitsController.dispose();
+    _studentsCountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFaculty() async {
+    try {
+      final list = await client.admin.getAllFaculty(isActive: true);
+      if (!mounted) return;
+      setState(() {
+        _facultyList = list;
+        _facultyLoadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _facultyLoadError = 'Failed to load faculty list: $e';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1367,8 +1401,62 @@ class _AddSubjectModalState extends State<_AddSubjectModal> {
                               ),
                             )
                             .toList(),
-                        onChanged: (v) => setState(() => _program = v!),
+                        onChanged: (v) => setState(() {
+                          _program = v!;
+                          if (_selectedFacultyId != null) {
+                            final match = _facultyList.where(
+                              (f) =>
+                                  f.id == _selectedFacultyId &&
+                                  (f.program == null || f.program == _program),
+                            );
+                            if (match.isEmpty) _selectedFacultyId = null;
+                          }
+                        }),
                       ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int?>(
+                        value: _selectedFacultyId,
+                        decoration: _inputDecoration('Assigned Faculty', isDark),
+                        dropdownColor: cardBg,
+                        items: [
+                          DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text(
+                              'Unassigned',
+                              style: GoogleFonts.poppins(color: textPrimary),
+                            ),
+                          ),
+                          ..._facultyList
+                              .where(
+                                (f) =>
+                                    f.program == null || f.program == _program,
+                              )
+                              .map(
+                                (f) => DropdownMenuItem<int?>(
+                                  value: f.id,
+                                  child: Text(
+                                    f.name,
+                                    style: GoogleFonts.poppins(
+                                      color: textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        ],
+                        onChanged: _facultyLoadError == null
+                            ? (v) => setState(() => _selectedFacultyId = v)
+                            : null,
+                      ),
+                      if (_facultyLoadError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _facultyLoadError!,
+                          style: GoogleFonts.poppins(
+                            color: Colors.red,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -1641,15 +1729,46 @@ class _AddSubjectModalState extends State<_AddSubjectModal> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedTypes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select at least one subject type.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final parsedUnits = int.tryParse(_unitsController.text.trim());
+    if (parsedUnits == null || parsedUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Units must be a valid number greater than 0.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final parsedStudents = int.tryParse(_studentsCountController.text.trim());
+    if (parsedStudents == null || parsedStudents < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Student count must be a valid non-negative number.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final subject = Subject(
         code: _codeController.text,
         name: _nameController.text,
-        units: int.parse(_unitsController.text),
-        studentsCount: int.parse(_studentsCountController.text),
+        units: parsedUnits,
+        studentsCount: parsedStudents,
         yearLevel: _yearLevel,
         term: _term,
+        facultyId: _selectedFacultyId,
         types: _selectedTypes,
         program: _program,
         isActive: true,
@@ -1657,13 +1776,27 @@ class _AddSubjectModalState extends State<_AddSubjectModal> {
         updatedAt: DateTime.now(),
       );
       await client.admin.createSubject(subject);
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       widget.onSuccess();
-      if (mounted) Navigator.pop(context);
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Subject created successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create subject: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -1696,7 +1829,10 @@ class _EditSubjectModalState extends State<_EditSubjectModal> {
   late int _term;
   late List<SubjectType> _selectedTypes;
   late Program _program;
+  List<Faculty> _facultyList = [];
+  int? _selectedFacultyId;
   bool _isLoading = false;
+  String? _facultyLoadError;
 
   @override
   void initState() {
@@ -1713,6 +1849,36 @@ class _EditSubjectModalState extends State<_EditSubjectModal> {
     _term = widget.subject.term ?? 1;
     _selectedTypes = List.from(widget.subject.types);
     _program = widget.subject.program;
+    _selectedFacultyId = widget.subject.facultyId;
+    _loadFaculty();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _nameController.dispose();
+    _unitsController.dispose();
+    _studentsCountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFaculty() async {
+    try {
+      final list = await client.admin.getAllFaculty(isActive: true);
+      if (!mounted) return;
+      setState(() {
+        _facultyList = list;
+        final hasSelected = _selectedFacultyId != null &&
+            _facultyList.any((f) => f.id == _selectedFacultyId);
+        if (!hasSelected) _selectedFacultyId = null;
+        _facultyLoadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _facultyLoadError = 'Failed to load faculty list: $e';
+      });
+    }
   }
 
   @override
@@ -1877,8 +2043,62 @@ class _EditSubjectModalState extends State<_EditSubjectModal> {
                               ),
                             )
                             .toList(),
-                        onChanged: (v) => setState(() => _program = v!),
+                        onChanged: (v) => setState(() {
+                          _program = v!;
+                          if (_selectedFacultyId != null) {
+                            final match = _facultyList.where(
+                              (f) =>
+                                  f.id == _selectedFacultyId &&
+                                  (f.program == null || f.program == _program),
+                            );
+                            if (match.isEmpty) _selectedFacultyId = null;
+                          }
+                        }),
                       ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int?>(
+                        value: _selectedFacultyId,
+                        decoration: _inputDecoration('Assigned Faculty', isDark),
+                        dropdownColor: cardBg,
+                        items: [
+                          DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text(
+                              'Unassigned',
+                              style: GoogleFonts.poppins(color: textPrimary),
+                            ),
+                          ),
+                          ..._facultyList
+                              .where(
+                                (f) =>
+                                    f.program == null || f.program == _program,
+                              )
+                              .map(
+                                (f) => DropdownMenuItem<int?>(
+                                  value: f.id,
+                                  child: Text(
+                                    f.name,
+                                    style: GoogleFonts.poppins(
+                                      color: textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        ],
+                        onChanged: _facultyLoadError == null
+                            ? (v) => setState(() => _selectedFacultyId = v)
+                            : null,
+                      ),
+                      if (_facultyLoadError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _facultyLoadError!,
+                          style: GoogleFonts.poppins(
+                            color: Colors.red,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
 
                       Text(
@@ -2135,27 +2355,72 @@ class _EditSubjectModalState extends State<_EditSubjectModal> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedTypes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select at least one subject type.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final parsedUnits = int.tryParse(_unitsController.text.trim());
+    if (parsedUnits == null || parsedUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Units must be a valid number greater than 0.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final parsedStudents = int.tryParse(_studentsCountController.text.trim());
+    if (parsedStudents == null || parsedStudents < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Student count must be a valid non-negative number.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final subject = widget.subject.copyWith(
         code: _codeController.text,
         name: _nameController.text,
-        units: int.parse(_unitsController.text),
-        studentsCount: int.parse(_studentsCountController.text),
+        units: parsedUnits,
+        studentsCount: parsedStudents,
         yearLevel: _yearLevel,
         term: _term,
+        facultyId: _selectedFacultyId,
         types: _selectedTypes,
         program: _program,
         updatedAt: DateTime.now(),
       );
       await client.admin.updateSubject(subject);
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       widget.onSuccess();
-      if (mounted) Navigator.pop(context);
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Subject updated successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update subject: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

@@ -61,8 +61,16 @@ class _TimetableScreenState extends ConsumerState<TimetableScreen> {
     try {
       final faculty = await client.admin.getAllFaculty(isActive: true);
       final rooms = await client.admin.getAllRooms(isActive: true);
+      final roles = await client.admin.getAllUserRoles();
+      final adminUserIds = roles
+          .where((r) => r.role.trim().toLowerCase() == 'admin')
+          .map((r) => r.userId.trim())
+          .toSet();
+      final schedulableFaculty = faculty
+          .where((f) => !adminUserIds.contains(f.userInfoId.toString()))
+          .toList();
       setState(() {
-        _facultyList = faculty;
+        _facultyList = schedulableFaculty;
         _roomList = rooms;
       });
     } catch (e) {
@@ -71,6 +79,12 @@ class _TimetableScreenState extends ConsumerState<TimetableScreen> {
   }
 
   Future<void> _generateSchedule() async {
+    final activeFilter = ref.read(timetableFilterProvider);
+    if (activeFilter.facultyId != null) {
+      await _generateScheduleForFaculty(activeFilter.facultyId!);
+      return;
+    }
+
     // Step 1: Pre-check
     showDialog(
       context: context,
@@ -255,6 +269,157 @@ class _TimetableScreenState extends ConsumerState<TimetableScreen> {
       final response = await client.admin.regenerateSchedule();
       if (mounted) Navigator.pop(context);
 
+      if (mounted) {
+        notifyScheduleDataChanged(ref);
+        ref.invalidate(filteredSchedulesProvider);
+        ref.invalidate(timetableSummaryProvider);
+        _showSummaryDialog(response);
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _generateScheduleForFaculty(int facultyId) async {
+    final selected = _facultyList.where((f) => f.id == facultyId).toList();
+    if (selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selected faculty is not schedulable.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.person_search_rounded, color: maroonColor, size: 24),
+            const SizedBox(width: 8),
+            Text(
+              'Generate For ${selected.first.name}',
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'This will clear existing schedules of ${selected.first.name} and generate only for this faculty.',
+          style: GoogleFonts.poppins(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: maroonColor,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(
+              'Generate',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: maroonColor),
+              const SizedBox(height: 16),
+              Text(
+                'Generating for ${selected.first.name}...',
+                style: GoogleFonts.poppins(fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final existing = await client.admin.getFacultySchedule(facultyId);
+      for (final schedule in existing) {
+        if (schedule.id != null) {
+          await client.admin.deleteSchedule(schedule.id!);
+        }
+      }
+
+      final subjects = await client.admin.getAllSubjects(isActive: true);
+      final rooms = await client.admin.getAllRooms(isActive: true);
+      final timeslots = await client.admin.getAllTimeslots();
+      final sections = await client.admin.getAllSections();
+      final selectedFaculty = selected.first;
+
+      final scopedSubjects = selectedFaculty.program == null
+          ? subjects
+          : subjects
+                .where((s) => s.program == selectedFaculty.program)
+                .toList();
+      final scopedSections = selectedFaculty.program == null
+          ? sections
+          : sections
+                .where(
+                  (s) => s.program == selectedFaculty.program && s.isActive,
+                )
+                .toList();
+      if (scopedSubjects.isEmpty || scopedSections.isEmpty) {
+        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No matching active subjects or sections for selected faculty program.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final request = GenerateScheduleRequest(
+        subjectIds: scopedSubjects.map((s) => s.id!).toList(),
+        facultyIds: [facultyId],
+        roomIds: rooms.map((r) => r.id!).toList(),
+        timeslotIds: timeslots.map((t) => t.id!).toList(),
+        sections: scopedSections.map((s) => s.sectionCode).toList(),
+      );
+
+      final response = await client.admin.generateSchedule(request);
+
+      if (mounted) Navigator.pop(context);
       if (mounted) {
         notifyScheduleDataChanged(ref);
         ref.invalidate(filteredSchedulesProvider);

@@ -7,6 +7,7 @@ fields:
   hours: double?
   yearLevel: int?
   term: int?
+  facultyId: int?
   types: List<SubjectType>
   program: Program
   studentsCount: int

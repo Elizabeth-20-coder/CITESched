@@ -23,28 +23,37 @@ class ConflictService {
     return subject.types.contains(SubjectType.laboratory);
   }
 
+  bool _isBlendedSubject(Subject subject) {
+    return subject.types.contains(SubjectType.blended);
+  }
+
+  bool _requiresLaboratoryRoom(Subject subject) {
+    return _isLabSubject(subject) || _isBlendedSubject(subject);
+  }
+
   ScheduleConflict? _buildRoomTypeConflict({
     required Schedule schedule,
     required Subject subject,
     required Room room,
   }) {
     final normalizedRoomName = _normalizeRoomName(room.name);
-    final isLabSubject = _isLabSubject(subject);
+    final requiresLabRoom = _requiresLaboratoryRoom(subject);
 
-    if (isLabSubject && !_labRoomNames.contains(normalizedRoomName)) {
+    if (requiresLabRoom && !_labRoomNames.contains(normalizedRoomName)) {
       return ScheduleConflict(
         type: 'room_type_mismatch',
-        message: 'Lab subjects can only be assigned to IT LAB or EMC LAB',
+        message:
+            'Laboratory or blended subjects can only be assigned to IT LAB or EMC LAB',
         facultyId: schedule.facultyId,
         roomId: room.id,
         subjectId: schedule.subjectId,
         scheduleId: schedule.id,
         details:
-            '${subject.name} requires a laboratory room, but was assigned to ${room.name}',
+            '${subject.name} requires a laboratory room (IT LAB or EMC LAB), but was assigned to ${room.name}',
       );
     }
 
-    if (!isLabSubject && normalizedRoomName != _lectureRoomName) {
+    if (!requiresLabRoom && normalizedRoomName != _lectureRoomName) {
       return ScheduleConflict(
         type: 'room_type_mismatch',
         message: 'Non-lab subjects can only be assigned to ROOM 1',

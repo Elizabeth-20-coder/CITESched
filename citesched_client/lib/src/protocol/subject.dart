@@ -24,6 +24,7 @@ abstract class Subject implements _i1.SerializableModel {
     this.hours,
     this.yearLevel,
     this.term,
+    this.facultyId,
     required this.types,
     required this.program,
     required this.studentsCount,
@@ -40,6 +41,7 @@ abstract class Subject implements _i1.SerializableModel {
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     required List<_i2.SubjectType> types,
     required _i3.Program program,
     required int studentsCount,
@@ -57,6 +59,7 @@ abstract class Subject implements _i1.SerializableModel {
       hours: (jsonSerialization['hours'] as num?)?.toDouble(),
       yearLevel: jsonSerialization['yearLevel'] as int?,
       term: jsonSerialization['term'] as int?,
+      facultyId: jsonSerialization['facultyId'] as int?,
       types: _i4.Protocol().deserialize<List<_i2.SubjectType>>(
         jsonSerialization['types'],
       ),
@@ -89,6 +92,8 @@ abstract class Subject implements _i1.SerializableModel {
 
   int? term;
 
+  int? facultyId;
+
   List<_i2.SubjectType> types;
 
   _i3.Program program;
@@ -112,6 +117,7 @@ abstract class Subject implements _i1.SerializableModel {
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     List<_i2.SubjectType>? types,
     _i3.Program? program,
     int? studentsCount,
@@ -130,6 +136,7 @@ abstract class Subject implements _i1.SerializableModel {
       if (hours != null) 'hours': hours,
       if (yearLevel != null) 'yearLevel': yearLevel,
       if (term != null) 'term': term,
+      if (facultyId != null) 'facultyId': facultyId,
       'types': types.toJson(valueToJson: (v) => v.toJson()),
       'program': program.toJson(),
       'studentsCount': studentsCount,
@@ -156,6 +163,7 @@ class _SubjectImpl extends Subject {
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     required List<_i2.SubjectType> types,
     required _i3.Program program,
     required int studentsCount,
@@ -170,6 +178,7 @@ class _SubjectImpl extends Subject {
          hours: hours,
          yearLevel: yearLevel,
          term: term,
+         facultyId: facultyId,
          types: types,
          program: program,
          studentsCount: studentsCount,
@@ -190,6 +199,7 @@ class _SubjectImpl extends Subject {
     Object? hours = _Undefined,
     Object? yearLevel = _Undefined,
     Object? term = _Undefined,
+    Object? facultyId = _Undefined,
     List<_i2.SubjectType>? types,
     _i3.Program? program,
     int? studentsCount,
@@ -205,6 +215,7 @@ class _SubjectImpl extends Subject {
       hours: hours is double? ? hours : this.hours,
       yearLevel: yearLevel is int? ? yearLevel : this.yearLevel,
       term: term is int? ? term : this.term,
+      facultyId: facultyId is int? ? facultyId : this.facultyId,
       types: types ?? this.types.map((e0) => e0).toList(),
       program: program ?? this.program,
       studentsCount: studentsCount ?? this.studentsCount,

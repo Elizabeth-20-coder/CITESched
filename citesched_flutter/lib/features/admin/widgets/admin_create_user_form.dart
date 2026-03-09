@@ -21,18 +21,19 @@ class AdminCreateUserForm extends StatefulWidget {
 
 class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
   final _formKey = GlobalKey<FormState>();
+  static const List<String> _allowedCourses = ['BSIT', 'BSEMC'];
 
   // Form fields
   final _studentNumberController = TextEditingController();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _courseController = TextEditingController();
-  final _yearLevelController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _sectionController = TextEditingController();
 
   late String _selectedRole;
+  String? _selectedCourse;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -43,6 +44,8 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
     _selectedRole = (initial == 'admin' || initial == 'student')
         ? initial!
         : 'student';
+    _selectedCourse = _allowedCourses.first;
+    _courseController.text = _selectedCourse!;
   }
 
   @override
@@ -51,11 +54,28 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
     _nameController.dispose();
     _emailController.dispose();
     _courseController.dispose();
-    _yearLevelController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _sectionController.dispose();
     super.dispose();
+  }
+
+  String _normalizeSectionCode(String input) {
+    final match = RegExp(r'^\s*(\d+)\s*([A-Za-z][A-Za-z0-9]*)\s*$').firstMatch(
+      input,
+    );
+    if (match == null) return input.trim().toUpperCase();
+    final year = match.group(1)!;
+    final suffix = match.group(2)!.toUpperCase();
+    return '$year$suffix';
+  }
+
+  int? _extractYearLevelFromSection(String input) {
+    final match = RegExp(r'^\s*(\d+)\s*[A-Za-z][A-Za-z0-9]*\s*$').firstMatch(
+      input,
+    );
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
   }
 
   Future<void> _submit() async {
@@ -68,13 +88,32 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
 
     try {
       final isStudent = _selectedRole == 'student';
+      if (isStudent) {
+        final selected = (_selectedCourse ?? '').trim().toUpperCase();
+        if (!_allowedCourses.contains(selected)) {
+          setState(() {
+            _errorMessage = 'Please select a valid course.';
+          });
+          return;
+        }
+        _selectedCourse = selected;
+        _courseController.text = selected;
+        final normalizedSection = _normalizeSectionCode(_sectionController.text);
+        if (_extractYearLevelFromSection(normalizedSection) == null) {
+          setState(() {
+            _errorMessage = 'Section must be like 3A, 3B, 2A, or 2B.';
+          });
+          return;
+        }
+        _sectionController.text = normalizedSection;
+      }
       final success = await client.setup.createAccount(
         userName: _nameController.text.trim(),
         email: _emailController.text.trim(),
@@ -82,7 +121,7 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
         role: _selectedRole,
         studentId: isStudent ? _studentNumberController.text.trim() : null,
         section: isStudent && _sectionController.text.trim().isNotEmpty
-            ? _sectionController.text.trim()
+            ? _normalizeSectionCode(_sectionController.text)
             : null,
       );
 
@@ -148,11 +187,13 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
       studentNumber: studentNumber,
-      course: _courseController.text.trim(),
-      yearLevel: int.tryParse(_yearLevelController.text) ?? student.yearLevel,
+      course: (_selectedCourse ?? _courseController.text).trim().toUpperCase(),
+      yearLevel:
+          _extractYearLevelFromSection(_sectionController.text) ??
+          student.yearLevel,
       section: _sectionController.text.trim().isEmpty
           ? null
-          : _sectionController.text.trim(),
+          : _normalizeSectionCode(_sectionController.text),
       updatedAt: DateTime.now(),
     );
 
@@ -411,70 +452,57 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
                       const SizedBox(height: 20),
 
                       if (_selectedRole == 'student') ...[
-                      // Course / Program
+                      // Course
                       _buildLabel(
-                        'Course / Program',
+                        'Course',
                         Icons.school_outlined,
                         textPrimary,
                       ),
-                      TextFormField(
-                        controller: _courseController,
+                      DropdownButtonFormField<String>(
+                        value: _allowedCourses.contains(_selectedCourse)
+                            ? _selectedCourse
+                            : null,
                         decoration: _buildInputDecoration(
-                          'e.g. BSIT, BSEMC',
+                          'Select program',
                           bgBody,
                           primaryPurple,
                           textMuted,
                         ),
-                        style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          color: textPrimary,
-                        ),
+                        items: _allowedCourses
+                            .map(
+                              (program) => DropdownMenuItem<String>(
+                                value: program,
+                                child: Text(
+                                  program,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 15,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCourse = value;
+                            _courseController.text = value ?? '';
+                          });
+                        },
                         validator: (value) =>
                             value == null || value.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: 20),
 
-                      // Year Level
+                      // Year & Section
                       _buildLabel(
-                        'Year Level',
-                        Icons.format_list_numbered_rounded,
-                        textPrimary,
-                      ),
-                      TextFormField(
-                        controller: _yearLevelController,
-                        decoration: _buildInputDecoration(
-                          '1',
-                          bgBody,
-                          primaryPurple,
-                          textMuted,
-                        ),
-                        keyboardType: TextInputType.number,
-                        style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          color: textPrimary,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Required';
-                          }
-                          if (int.tryParse(value) == null) {
-                            return 'Invalid number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Section
-                      _buildLabel(
-                        'Section',
+                        'Year & Section',
                         Icons.group_rounded,
                         textPrimary,
                       ),
                       TextFormField(
                         controller: _sectionController,
                         decoration: _buildInputDecoration(
-                          'e.g. A',
+                          'e.g. 3A, 3B, 2A, 2B',
                           bgBody,
                           primaryPurple,
                           textMuted,
@@ -483,7 +511,16 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
                           fontSize: 15,
                           color: textPrimary,
                         ),
-                        // Optional � no validator
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Required';
+                          }
+                          final normalized = _normalizeSectionCode(value);
+                          if (_extractYearLevelFromSection(normalized) == null) {
+                            return 'Use format like 3A, 3B, 2A, 2B';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 20),
                       ],
@@ -689,3 +726,4 @@ class _AdminCreateUserFormState extends State<AdminCreateUserForm> {
     );
   }
 }
+

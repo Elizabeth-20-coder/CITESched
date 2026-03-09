@@ -51,15 +51,25 @@ const String _lectureRoomName = 'ROOM 1';
 String _normalizedRoomName(String value) => value.trim().toUpperCase();
 
 bool _requiresLaboratoryRoom(List<SubjectType> types) {
-  return types.contains(SubjectType.laboratory);
+  return types.contains(SubjectType.laboratory) ||
+      types.contains(SubjectType.blended);
 }
 
-List<SubjectType> _effectiveLoadTypes({
-  required List<SubjectType> selectedLoadTypes,
-  required Subject? selectedSubject,
-}) {
-  if (selectedLoadTypes.isNotEmpty) return selectedLoadTypes;
-  return selectedSubject?.types ?? const <SubjectType>[];
+double _hoursForSubjectTypes(List<SubjectType> types) {
+  final hasLecture = types.contains(SubjectType.lecture);
+  final hasLaboratory = types.contains(SubjectType.laboratory);
+  final hasBlended = types.contains(SubjectType.blended);
+
+  if (hasBlended || (hasLecture && hasLaboratory)) return 5.0;
+  if (hasLaboratory) return 3.0;
+  return 2.0;
+}
+
+String _formatLoadValue(double value) {
+  if (value == value.roundToDouble()) {
+    return value.toStringAsFixed(0);
+  }
+  return value.toStringAsFixed(1);
 }
 
 bool _isRoomAllowedForTypes({
@@ -93,6 +103,38 @@ String _subjectNameById(List<Subject> list, int? id) {
     if (s.id == id) return s.name;
   }
   return 'Subject #$id';
+}
+
+Program? _programForSectionId(List<Section> sections, int? sectionId) {
+  if (sectionId == null) return null;
+  for (final section in sections) {
+    if (section.id == sectionId) return section.program;
+  }
+  return null;
+}
+
+Program? _programForFacultyId(List<Faculty> faculties, int? facultyId) {
+  if (facultyId == null) return null;
+  for (final faculty in faculties) {
+    if (faculty.id == facultyId) return faculty.program;
+  }
+  return null;
+}
+
+Program? _programForSubjectId(List<Subject> subjects, int? subjectId) {
+  if (subjectId == null) return null;
+  for (final subject in subjects) {
+    if (subject.id == subjectId) return subject.program;
+  }
+  return null;
+}
+
+List<Subject> _subjectsAssignedToFaculty(
+  List<Subject> subjects,
+  int? facultyId,
+) {
+  if (facultyId == null) return const [];
+  return subjects.where((s) => s.isActive && s.facultyId == facultyId).toList();
 }
 
 String _roomNameById(List<Room> list, int? id) {
@@ -169,7 +211,35 @@ bool _timeslotWithinAvailability(Timeslot slot, FacultyAvailability avail) {
   final availStart = _timeToMinutes(avail.startTime);
   final availEnd = _timeToMinutes(avail.endTime);
   if (slotEnd <= slotStart || availEnd <= availStart) return false;
-  return slotStart < availEnd && slotEnd > availStart;
+  // Strict match: only show timeslots that exactly match availability windows.
+  return slotStart == availStart && slotEnd == availEnd;
+}
+
+bool _timeslotMatchesAvailabilityWindow(
+  Timeslot slot,
+  FacultyAvailability avail,
+) {
+  if (slot.day != avail.dayOfWeek) return false;
+  return _timeToMinutes(slot.startTime) == _timeToMinutes(avail.startTime) &&
+      _timeToMinutes(slot.endTime) == _timeToMinutes(avail.endTime);
+}
+
+List<Timeslot> _dedupeTimeslotsByWindow(List<Timeslot> timeslots) {
+  final byWindow = <String, Timeslot>{};
+  for (final slot in timeslots) {
+    final key = '${slot.day.name}|${slot.startTime}|${slot.endTime}';
+    final existing = byWindow[key];
+    if (existing == null) {
+      byWindow[key] = slot;
+      continue;
+    }
+    final existingId = existing.id ?? 1 << 30;
+    final slotId = slot.id ?? 1 << 30;
+    if (slotId < existingId) {
+      byWindow[key] = slot;
+    }
+  }
+  return byWindow.values.toList();
 }
 
 Future<void> _createTimeslotsFromAvailability({
@@ -2157,9 +2227,20 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
   int? _selectedSectionId;
   int? _selectedRoomId;
   int? _selectedTimeslotId;
-  final List<SubjectType> _selectedLoadTypes = [];
   bool _isAutoAssign = false;
   bool _isLoading = false;
+
+  void _applySubjectDefaults(Subject? subject) {
+    if (subject == null) {
+      _unitsController.clear();
+      _hoursController.clear();
+      return;
+    }
+    _unitsController.text = _formatLoadValue(subject.units.toDouble());
+    _hoursController.text = _formatLoadValue(
+      _hoursForSubjectTypes(subject.types),
+    );
+  }
 
   @override
   void dispose() {
@@ -2225,6 +2306,13 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
             data: (s) => s,
             orElse: () => <Timeslot>[],
           );
+      Faculty? selectedFaculty;
+      for (final faculty in facultyList) {
+        if (faculty.id == _selectedFacultyId) {
+          selectedFaculty = faculty;
+          break;
+        }
+      }
       Subject? selectedSubject;
       for (final subject in subjectList) {
         if (subject.id == _selectedSubjectId) {
@@ -2232,11 +2320,27 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
           break;
         }
       }
+      if (selectedSubject == null) {
+        throw Exception(
+          'Please select a valid subject assigned to this faculty.',
+        );
+      }
+      if (selectedFaculty == null) {
+        throw Exception('Please select a valid faculty member.');
+      }
+      if (selectedFaculty.program != null &&
+          selectedFaculty.program != section.program) {
+        throw Exception(
+          'Faculty program must match the selected section program.',
+        );
+      }
+      if (selectedSubject.program != section.program) {
+        throw Exception(
+          'Subject program must match the selected section program.',
+        );
+      }
 
-      final effectiveTypes = _effectiveLoadTypes(
-        selectedLoadTypes: _selectedLoadTypes,
-        selectedSubject: selectedSubject,
-      );
+      final effectiveTypes = selectedSubject.types;
 
       if (!_isAutoAssign && _selectedRoomId != null) {
         Room? selectedRoom;
@@ -2259,7 +2363,7 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
             )) {
           throw Exception(
             _requiresLaboratoryRoom(effectiveTypes)
-                ? 'Laboratory subjects can only be assigned to IT LAB or EMC LAB.'
+                ? 'Laboratory or blended subjects can only be assigned to IT LAB or EMC LAB.'
                 : 'Lecture-only subjects can only be assigned to ROOM 1.',
           );
         }
@@ -2299,11 +2403,11 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
         subjectId: _selectedSubjectId!,
         roomId: _isAutoAssign ? null : _selectedRoomId,
         timeslotId: _isAutoAssign ? null : _selectedTimeslotId,
-        section: section?.sectionCode ?? '',
+        section: section.sectionCode,
         sectionId: _selectedSectionId,
-        loadTypes: _selectedLoadTypes,
-        units: double.tryParse(_unitsController.text),
-        hours: double.tryParse(_hoursController.text),
+        loadTypes: selectedSubject.types,
+        units: selectedSubject.units.toDouble(),
+        hours: _hoursForSubjectTypes(selectedSubject.types),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -2311,9 +2415,10 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
       await client.admin.createSchedule(schedule);
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
         widget.onSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(
             content: Text('Assignment created successfully'),
             backgroundColor: Colors.green,
@@ -2343,7 +2448,7 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
     final roomsAsync = ref.watch(roomsProvider);
     final timeslotsAsync = ref.watch(timeslotsProvider);
     final sectionsAsync = ref.watch(sectionListProvider);
-    final sectionCodesAsync = ref.watch(studentSectionsProvider);
+    final studentsAsync = ref.watch(studentsProvider);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -2402,17 +2507,48 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
                             const Text('Error loading faculty'),
-                        data: (facultyList) => _buildDropdown<int>(
-                          label: 'Faculty',
-                          value: _selectedFacultyId,
-                          items: facultyList.map((f) => f.id!).toList(),
-                          itemLabel: (id) =>
-                              facultyList.firstWhere((f) => f.id == id).name,
-                          onChanged: (value) =>
-                              setState(() => _selectedFacultyId = value),
-                          validator: (value) =>
-                              value == null ? 'Required' : null,
-                        ),
+                        data: (facultyList) {
+                          final filteredFaculty = facultyList
+                              .where((f) => f.isActive && f.program != null)
+                              .toList();
+
+                          if (filteredFaculty.isEmpty) {
+                            return const Text(
+                              'No active faculty instructors available.',
+                            );
+                          }
+
+                          return _buildDropdown<int>(
+                            label: 'Faculty',
+                            value: _selectedFacultyId,
+                            items: filteredFaculty.map((f) => f.id!).toList(),
+                            itemLabel: (id) => filteredFaculty
+                                .firstWhere((f) => f.id == id)
+                                .name,
+                            onChanged: (value) => setState(() {
+                              _selectedFacultyId = value;
+                              final allSubjects = ref
+                                  .read(subjectsProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Subject>[],
+                                  );
+                              final allowed = _subjectsAssignedToFaculty(
+                                allSubjects,
+                                _selectedFacultyId,
+                              );
+                              if (_selectedSubjectId != null &&
+                                  !allowed.any(
+                                    (s) => s.id == _selectedSubjectId,
+                                  )) {
+                                _selectedSubjectId = null;
+                                _applySubjectDefaults(null);
+                              }
+                            }),
+                            validator: (value) =>
+                                value == null ? 'Required' : null,
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
 
@@ -2421,34 +2557,117 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
                             const Text('Error loading subjects'),
-                        data: (subjectList) => _buildDropdown<int>(
-                          label: 'Subject',
-                          value: _selectedSubjectId,
-                          items: subjectList.map((s) => s.id!).toList(),
-                          itemLabel: (id) =>
-                              subjectList.firstWhere((s) => s.id == id).name,
-                          onChanged: (value) =>
-                              setState(() => _selectedSubjectId = value),
-                          validator: (value) =>
-                              value == null ? 'Required' : null,
-                        ),
+                        data: (subjectList) {
+                          final facultyProgram = _programForFacultyId(
+                            ref
+                                .read(facultyListProvider)
+                                .maybeWhen(
+                                  data: (s) => s,
+                                  orElse: () => <Faculty>[],
+                                ),
+                            _selectedFacultyId,
+                          );
+                          final sectionProgram = _programForSectionId(
+                            ref
+                                .read(sectionListProvider)
+                                .maybeWhen(
+                                  data: (s) => s,
+                                  orElse: () => <Section>[],
+                                ),
+                            _selectedSectionId,
+                          );
+                          if (facultyProgram != null &&
+                              sectionProgram != null &&
+                              facultyProgram != sectionProgram) {
+                            return const Text(
+                              'Selected faculty does not match the section program. Choose an aligned faculty.',
+                            );
+                          }
+                          if (_selectedFacultyId == null) {
+                            return const Text(
+                              'Select a faculty member first to see assigned subjects.',
+                            );
+                          }
+                          final filtered = _subjectsAssignedToFaculty(
+                            subjectList,
+                            _selectedFacultyId,
+                          );
+                          if (filtered.isEmpty) {
+                            return const Text(
+                              'No subject is assigned to this faculty in Subject Management.',
+                            );
+                          }
+                          return _buildDropdown<int>(
+                            label: 'Subject',
+                            value: _selectedSubjectId,
+                            items: filtered.map((s) => s.id!).toList(),
+                            itemLabel: (id) =>
+                                filtered.firstWhere((s) => s.id == id).name,
+                            onChanged: (value) => setState(() {
+                              _selectedSubjectId = value;
+                              final selected = filtered.where(
+                                (s) => s.id == value,
+                              );
+                              _applySubjectDefaults(
+                                selected.isNotEmpty ? selected.first : null,
+                              );
+                            }),
+                            validator: (value) =>
+                                value == null ? 'Required' : null,
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
 
-                      // Section (only sections that still have students)
-                      sectionCodesAsync.when(
+                      // Section (only sections that still have active students)
+                      studentsAsync.when(
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
-                            const Text('Error loading sections'),
-                        data: (sectionCodes) => sectionsAsync.when(
+                            const Text('Error loading students'),
+                        data: (students) => sectionsAsync.when(
                           loading: () => const CircularProgressIndicator(),
                           error: (error, stack) =>
                               const Text('Error loading sections'),
                           data: (sections) {
+                            final enrolledSectionIds = students
+                                .where((s) => s.sectionId != null)
+                                .map((s) => s.sectionId!)
+                                .toSet();
+                            final enrolledSectionCodes = students
+                                .map((s) => s.section?.trim())
+                                .whereType<String>()
+                                .where((code) => code.isNotEmpty)
+                                .toSet();
                             final filteredById = <int, Section>{};
+                            final selectedFacultyProgram = _programForFacultyId(
+                              ref
+                                  .read(facultyListProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Faculty>[],
+                                  ),
+                              _selectedFacultyId,
+                            );
+                            final selectedSubjectProgram = _programForSubjectId(
+                              ref
+                                  .read(subjectsProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Subject>[],
+                                  ),
+                              _selectedSubjectId,
+                            );
+                            final targetProgram =
+                                selectedFacultyProgram ??
+                                selectedSubjectProgram;
                             for (final s in sections) {
                               if (s.id != null &&
-                                  sectionCodes.contains(s.sectionCode)) {
+                                  (enrolledSectionIds.contains(s.id) ||
+                                      enrolledSectionCodes.contains(
+                                        s.sectionCode.trim(),
+                                      )) &&
+                                  (targetProgram == null ||
+                                      s.program == targetProgram)) {
                                 filteredById[s.id!] = s;
                               }
                             }
@@ -2464,6 +2683,16 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                             }
 
                             final items = filtered.map((s) => s.id!).toList();
+                            if ((_selectedSectionId == null ||
+                                    !items.contains(_selectedSectionId)) &&
+                                items.isNotEmpty) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted) return;
+                                setState(() {
+                                  _selectedSectionId = items.first;
+                                });
+                              });
+                            }
                             final initialId =
                                 (_selectedSectionId != null &&
                                     items.contains(_selectedSectionId))
@@ -2487,62 +2716,13 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Load Type
-                      // Load Types
-                      Text(
-                        'Subject Types',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.grey[300]
-                              : Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: SubjectType.values.map((type) {
-                          final isSelected = _selectedLoadTypes.contains(type);
-                          return FilterChip(
-                            label: Text(type.name.toUpperCase()),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              setState(() {
-                                if (selected) {
-                                  _selectedLoadTypes.add(type);
-                                } else {
-                                  _selectedLoadTypes.remove(type);
-                                }
-                              });
-                            },
-                            selectedColor: widget.maroonColor.withValues(
-                              alpha: 0.2,
-                            ),
-                            checkmarkColor: widget.maroonColor,
-                            labelStyle: GoogleFonts.poppins(
-                              color: isSelected
-                                  ? widget.maroonColor
-                                  : (Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.white70
-                                        : Colors.black87),
-                              fontSize: 12,
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-
                       // Units
                       _buildTextField(
                         controller: _unitsController,
                         label: 'Units',
                         icon: Icons.numbers,
                         keyboardType: TextInputType.number,
+                        readOnly: true,
                       ),
                       const SizedBox(height: 16),
 
@@ -2552,6 +2732,7 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                         label: 'Hours',
                         icon: Icons.access_time,
                         keyboardType: TextInputType.number,
+                        readOnly: true,
                       ),
                       const SizedBox(height: 24),
 
@@ -2601,10 +2782,8 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                                 break;
                               }
                             }
-                            final effectiveTypes = _effectiveLoadTypes(
-                              selectedLoadTypes: _selectedLoadTypes,
-                              selectedSubject: selectedSubject,
-                            );
+                            final effectiveTypes =
+                                selectedSubject?.types ?? const <SubjectType>[];
                             final filteredRooms = effectiveTypes.isEmpty
                                 ? roomList
                                       .where(_isSupportedSchedulingRoom)
@@ -2663,13 +2842,41 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                                 style: GoogleFonts.poppins(fontSize: 12),
                               ),
                               data: (availabilityList) {
-                                if (timeslotList.isEmpty) {
-                                  return Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
+                                final filtered = _dedupeTimeslotsByWindow(
+                                  timeslotList
+                                      .where(
+                                        (t) => availabilityList.any(
+                                          (a) =>
+                                              _timeslotWithinAvailability(t, a),
+                                        ),
+                                      )
+                                      .toList(),
+                                );
+                                final missingWindows = availabilityList
+                                    .where(
+                                      (a) => !timeslotList.any(
+                                        (t) =>
+                                            _timeslotMatchesAvailabilityWindow(
+                                              t,
+                                              a,
+                                            ),
+                                      ),
+                                    )
+                                    .toList();
+
+                                if (availabilityList.isEmpty) {
+                                  return Text(
+                                    'No preferred timeslots for this faculty',
+                                    style: GoogleFonts.poppins(fontSize: 12),
+                                  );
+                                }
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (missingWindows.isNotEmpty) ...[
                                       Text(
-                                        'No timeslots found. Generate from faculty availability.',
+                                        'Some preferred windows are not yet in Timeslots.',
                                         style: GoogleFonts.poppins(
                                           fontSize: 12,
                                         ),
@@ -2685,49 +2892,43 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                                             ),
                                         icon: const Icon(Icons.auto_fix_high),
                                         label: Text(
-                                          'Generate Timeslots',
+                                          'Generate Missing Timeslots',
                                           style: GoogleFonts.poppins(
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                       ),
+                                      const SizedBox(height: 8),
                                     ],
-                                  );
-                                }
-                                final filtered = timeslotList
-                                    .where(
-                                      (t) => availabilityList.any(
-                                        (a) =>
-                                            _timeslotWithinAvailability(t, a),
+                                    if (filtered.isEmpty)
+                                      Text(
+                                        'No preferred timeslots for this faculty',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                        ),
+                                      )
+                                    else
+                                      _buildDropdown<int>(
+                                        label: 'Timeslot',
+                                        value: _selectedTimeslotId,
+                                        items: filtered
+                                            .map((t) => t.id!)
+                                            .toList(),
+                                        itemLabel: (id) {
+                                          final t = filtered.firstWhere(
+                                            (t) => t.id == id,
+                                          );
+                                          return CITESchedDateUtils.formatTimeslot(
+                                            t.day,
+                                            t.startTime,
+                                            t.endTime,
+                                          );
+                                        },
+                                        onChanged: (value) => setState(
+                                          () => _selectedTimeslotId = value,
+                                        ),
                                       ),
-                                    )
-                                    .toList();
-
-                                if (availabilityList.isEmpty ||
-                                    filtered.isEmpty) {
-                                  return Text(
-                                    'No preferred timeslots for this faculty',
-                                    style: GoogleFonts.poppins(fontSize: 12),
-                                  );
-                                }
-
-                                return _buildDropdown<int>(
-                                  label: 'Timeslot',
-                                  value: _selectedTimeslotId,
-                                  items: filtered.map((t) => t.id!).toList(),
-                                  itemLabel: (id) {
-                                    final t = filtered.firstWhere(
-                                      (t) => t.id == id,
-                                    );
-                                    return CITESchedDateUtils.formatTimeslot(
-                                      t.day,
-                                      t.startTime,
-                                      t.endTime,
-                                    );
-                                  },
-                                  onChanged: (value) => setState(
-                                    () => _selectedTimeslotId = value,
-                                  ),
+                                  ],
                                 );
                               },
                             );
@@ -2802,11 +3003,13 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
     required String label,
     required IconData icon,
     TextInputType? keyboardType,
+    bool readOnly = false,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      readOnly: readOnly,
       validator: validator,
       decoration: InputDecoration(
         labelText: label,
@@ -2891,9 +3094,16 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
   int? _selectedSectionId;
   int? _selectedRoomId;
   int? _selectedTimeslotId;
-  List<SubjectType> _selectedLoadTypes = [];
   bool _isAutoAssign = false;
   bool _isLoading = false;
+
+  void _applySubjectDefaults(Subject? subject) {
+    if (subject == null) return;
+    _unitsController.text = _formatLoadValue(subject.units.toDouble());
+    _hoursController.text = _formatLoadValue(
+      _hoursForSubjectTypes(subject.types),
+    );
+  }
 
   @override
   void initState() {
@@ -2913,9 +3123,21 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
     _selectedTimeslotId = widget.schedule.timeslotId == -1
         ? null
         : widget.schedule.timeslotId;
-    _selectedLoadTypes = List.from(widget.schedule.loadTypes ?? []);
     _isAutoAssign =
         widget.schedule.roomId == -1 || widget.schedule.timeslotId == -1;
+
+    final subjects = ref
+        .read(subjectsProvider)
+        .maybeWhen(
+          data: (s) => s,
+          orElse: () => <Subject>[],
+        );
+    for (final subject in subjects) {
+      if (subject.id == _selectedSubjectId) {
+        _applySubjectDefaults(subject);
+        break;
+      }
+    }
   }
 
   @override
@@ -2992,11 +3214,13 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
           break;
         }
       }
+      if (selectedSubject == null) {
+        throw Exception(
+          'Please select a valid subject assigned to this faculty.',
+        );
+      }
 
-      final effectiveTypes = _effectiveLoadTypes(
-        selectedLoadTypes: _selectedLoadTypes,
-        selectedSubject: selectedSubject,
-      );
+      final effectiveTypes = selectedSubject.types;
 
       if (!_isAutoAssign && _selectedRoomId != null) {
         Room? selectedRoom;
@@ -3019,7 +3243,7 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
             )) {
           throw Exception(
             _requiresLaboratoryRoom(effectiveTypes)
-                ? 'Laboratory subjects can only be assigned to IT LAB or EMC LAB.'
+                ? 'Laboratory or blended subjects can only be assigned to IT LAB or EMC LAB.'
                 : 'Lecture-only subjects can only be assigned to ROOM 1.',
           );
         }
@@ -3060,11 +3284,11 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
         subjectId: _selectedSubjectId,
         roomId: _isAutoAssign ? null : _selectedRoomId,
         timeslotId: _isAutoAssign ? null : _selectedTimeslotId,
-        section: section?.sectionCode ?? widget.schedule.section,
+        section: section.sectionCode,
         sectionId: _selectedSectionId ?? widget.schedule.sectionId,
-        loadTypes: _selectedLoadTypes,
-        units: double.tryParse(_unitsController.text),
-        hours: double.tryParse(_hoursController.text),
+        loadTypes: selectedSubject.types,
+        units: selectedSubject.units.toDouble(),
+        hours: _hoursForSubjectTypes(selectedSubject.types),
         createdAt: widget.schedule.createdAt,
         updatedAt: DateTime.now(),
       );
@@ -3072,11 +3296,12 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
       await client.admin.updateSchedule(updatedSchedule);
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
         widget.onSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(
-            content: Text('Assignment updated successfully'),
+            content: Text('Edit saved successfully'),
             backgroundColor: Colors.green,
           ),
         );
@@ -3104,7 +3329,7 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
     final roomsAsync = ref.watch(roomsProvider);
     final timeslotsAsync = ref.watch(timeslotsProvider);
     final sectionsAsync = ref.watch(sectionListProvider);
-    final sectionCodesAsync = ref.watch(studentSectionsProvider);
+    final studentsAsync = ref.watch(studentsProvider);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -3159,17 +3384,57 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
                             const Text('Error loading faculty'),
-                        data: (facultyList) => _buildDropdown<int>(
-                          label: 'Faculty',
-                          value: _selectedFacultyId,
-                          items: facultyList.map((f) => f.id!).toList(),
-                          itemLabel: (id) =>
-                              facultyList.firstWhere((f) => f.id == id).name,
-                          onChanged: (value) =>
-                              setState(() => _selectedFacultyId = value!),
-                          validator: (value) =>
-                              value == null ? 'Required' : null,
-                        ),
+                        data: (facultyList) {
+                          final filteredFaculty = facultyList
+                              .where((f) => f.isActive && f.program != null)
+                              .toList();
+                          if (!filteredFaculty.any(
+                            (f) => f.id == _selectedFacultyId,
+                          )) {
+                            final current = facultyList.where(
+                              (f) => f.id == _selectedFacultyId,
+                            );
+                            if (current.isNotEmpty) {
+                              filteredFaculty.add(current.first);
+                            }
+                          }
+                          return _buildDropdown<int>(
+                            label: 'Faculty',
+                            value: _selectedFacultyId,
+                            items: filteredFaculty.map((f) => f.id!).toList(),
+                            itemLabel: (id) => filteredFaculty
+                                .firstWhere((f) => f.id == id)
+                                .name,
+                            onChanged: (value) => setState(() {
+                              _selectedFacultyId = value!;
+                              final allSubjects = ref
+                                  .read(subjectsProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Subject>[],
+                                  );
+                              final allowed = _subjectsAssignedToFaculty(
+                                allSubjects,
+                                _selectedFacultyId,
+                              );
+                              if (!allowed.any(
+                                (s) => s.id == _selectedSubjectId,
+                              )) {
+                                _selectedSubjectId = allowed.isNotEmpty
+                                    ? allowed.first.id!
+                                    : _selectedSubjectId;
+                                final selected = allowed.where(
+                                  (s) => s.id == _selectedSubjectId,
+                                );
+                                _applySubjectDefaults(
+                                  selected.isNotEmpty ? selected.first : null,
+                                );
+                              }
+                            }),
+                            validator: (value) =>
+                                value == null ? 'Required' : null,
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
 
@@ -3178,34 +3443,74 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
                             const Text('Error loading subjects'),
-                        data: (subjectList) => _buildDropdown<int>(
-                          label: 'Subject',
-                          value: _selectedSubjectId,
-                          items: subjectList.map((s) => s.id!).toList(),
-                          itemLabel: (id) =>
-                              subjectList.firstWhere((s) => s.id == id).name,
-                          onChanged: (value) =>
-                              setState(() => _selectedSubjectId = value!),
-                          validator: (value) =>
-                              value == null ? 'Required' : null,
-                        ),
+                        data: (subjectList) {
+                          final filtered = _subjectsAssignedToFaculty(
+                            subjectList,
+                            _selectedFacultyId,
+                          );
+                          if (!filtered.any(
+                            (s) => s.id == _selectedSubjectId,
+                          )) {
+                            final current = subjectList.where(
+                              (s) => s.id == _selectedSubjectId,
+                            );
+                            if (current.isNotEmpty) {
+                              filtered.add(current.first);
+                            }
+                          }
+                          if (filtered.isEmpty) {
+                            return const Text(
+                              'No subject is assigned to this faculty in Subject Management.',
+                            );
+                          }
+                          return _buildDropdown<int>(
+                            label: 'Subject',
+                            value: _selectedSubjectId,
+                            items: filtered.map((s) => s.id!).toList(),
+                            itemLabel: (id) =>
+                                filtered.firstWhere((s) => s.id == id).name,
+                            onChanged: (value) => setState(() {
+                              _selectedSubjectId = value!;
+                              final selected = filtered.where(
+                                (s) => s.id == value,
+                              );
+                              _applySubjectDefaults(
+                                selected.isNotEmpty ? selected.first : null,
+                              );
+                            }),
+                            validator: (value) =>
+                                value == null ? 'Required' : null,
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
 
-                      // Section (only sections that still have students)
-                      sectionCodesAsync.when(
+                      // Section (only sections that still have active students)
+                      studentsAsync.when(
                         loading: () => const CircularProgressIndicator(),
                         error: (error, stack) =>
-                            const Text('Error loading sections'),
-                        data: (sectionCodes) => sectionsAsync.when(
+                            const Text('Error loading students'),
+                        data: (students) => sectionsAsync.when(
                           loading: () => const CircularProgressIndicator(),
                           error: (error, stack) =>
                               const Text('Error loading sections'),
                           data: (sections) {
+                            final enrolledSectionIds = students
+                                .where((s) => s.sectionId != null)
+                                .map((s) => s.sectionId!)
+                                .toSet();
+                            final enrolledSectionCodes = students
+                                .map((s) => s.section?.trim())
+                                .whereType<String>()
+                                .where((code) => code.isNotEmpty)
+                                .toSet();
                             final filteredById = <int, Section>{};
                             for (final s in sections) {
                               if (s.id != null &&
-                                  sectionCodes.contains(s.sectionCode)) {
+                                  (enrolledSectionIds.contains(s.id) ||
+                                      enrolledSectionCodes.contains(
+                                        s.sectionCode.trim(),
+                                      ))) {
                                 filteredById[s.id!] = s;
                               }
                             }
@@ -3262,62 +3567,13 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Load Type
-                      // Load Types
-                      Text(
-                        'Subject Types',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.grey[300]
-                              : Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: SubjectType.values.map((type) {
-                          final isSelected = _selectedLoadTypes.contains(type);
-                          return FilterChip(
-                            label: Text(type.name.toUpperCase()),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              setState(() {
-                                if (selected) {
-                                  _selectedLoadTypes.add(type);
-                                } else {
-                                  _selectedLoadTypes.remove(type);
-                                }
-                              });
-                            },
-                            selectedColor: widget.maroonColor.withValues(
-                              alpha: 0.2,
-                            ),
-                            checkmarkColor: widget.maroonColor,
-                            labelStyle: GoogleFonts.poppins(
-                              color: isSelected
-                                  ? widget.maroonColor
-                                  : (Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.white70
-                                        : Colors.black87),
-                              fontSize: 12,
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-
                       // Units
                       _buildTextField(
                         controller: _unitsController,
                         label: 'Units',
                         icon: Icons.numbers,
                         keyboardType: TextInputType.number,
+                        readOnly: true,
                       ),
                       const SizedBox(height: 16),
 
@@ -3327,6 +3583,7 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                         label: 'Hours',
                         icon: Icons.access_time,
                         keyboardType: TextInputType.number,
+                        readOnly: true,
                       ),
                       const SizedBox(height: 24),
 
@@ -3376,10 +3633,8 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                                 break;
                               }
                             }
-                            final effectiveTypes = _effectiveLoadTypes(
-                              selectedLoadTypes: _selectedLoadTypes,
-                              selectedSubject: selectedSubject,
-                            );
+                            final effectiveTypes =
+                                selectedSubject?.types ?? const <SubjectType>[];
                             final filteredRooms = effectiveTypes.isEmpty
                                 ? roomList
                                       .where(_isSupportedSchedulingRoom)
@@ -3420,15 +3675,8 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                           error: (error, stack) =>
                               const Text('Error loading timeslots'),
                           data: (timeslotList) {
-                            if (_selectedFacultyId == null) {
-                              return Text(
-                                'Select a faculty member to load available timeslots',
-                                style: GoogleFonts.poppins(fontSize: 12),
-                              );
-                            }
-
                             final availabilityAsync = ref.watch(
-                              facultyAvailabilityProvider(_selectedFacultyId!),
+                              facultyAvailabilityProvider(_selectedFacultyId),
                             );
 
                             return availabilityAsync.when(
@@ -3438,13 +3686,41 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                                 style: GoogleFonts.poppins(fontSize: 12),
                               ),
                               data: (availabilityList) {
-                                if (timeslotList.isEmpty) {
-                                  return Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
+                                final filtered = _dedupeTimeslotsByWindow(
+                                  timeslotList
+                                      .where(
+                                        (t) => availabilityList.any(
+                                          (a) =>
+                                              _timeslotWithinAvailability(t, a),
+                                        ),
+                                      )
+                                      .toList(),
+                                );
+                                final missingWindows = availabilityList
+                                    .where(
+                                      (a) => !timeslotList.any(
+                                        (t) =>
+                                            _timeslotMatchesAvailabilityWindow(
+                                              t,
+                                              a,
+                                            ),
+                                      ),
+                                    )
+                                    .toList();
+
+                                if (availabilityList.isEmpty) {
+                                  return Text(
+                                    'No preferred timeslots for this faculty',
+                                    style: GoogleFonts.poppins(fontSize: 12),
+                                  );
+                                }
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (missingWindows.isNotEmpty) ...[
                                       Text(
-                                        'No timeslots found. Generate from faculty availability.',
+                                        'Some preferred windows are not yet in Timeslots.',
                                         style: GoogleFonts.poppins(
                                           fontSize: 12,
                                         ),
@@ -3460,49 +3736,43 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                                             ),
                                         icon: const Icon(Icons.auto_fix_high),
                                         label: Text(
-                                          'Generate Timeslots',
+                                          'Generate Missing Timeslots',
                                           style: GoogleFonts.poppins(
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                       ),
+                                      const SizedBox(height: 8),
                                     ],
-                                  );
-                                }
-                                final filtered = timeslotList
-                                    .where(
-                                      (t) => availabilityList.any(
-                                        (a) =>
-                                            _timeslotWithinAvailability(t, a),
+                                    if (filtered.isEmpty)
+                                      Text(
+                                        'No preferred timeslots for this faculty',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                        ),
+                                      )
+                                    else
+                                      _buildDropdown<int>(
+                                        label: 'Timeslot',
+                                        value: _selectedTimeslotId,
+                                        items: filtered
+                                            .map((t) => t.id!)
+                                            .toList(),
+                                        itemLabel: (id) {
+                                          final t = filtered.firstWhere(
+                                            (t) => t.id == id,
+                                          );
+                                          return CITESchedDateUtils.formatTimeslot(
+                                            t.day,
+                                            t.startTime,
+                                            t.endTime,
+                                          );
+                                        },
+                                        onChanged: (value) => setState(
+                                          () => _selectedTimeslotId = value,
+                                        ),
                                       ),
-                                    )
-                                    .toList();
-
-                                if (availabilityList.isEmpty ||
-                                    filtered.isEmpty) {
-                                  return Text(
-                                    'No preferred timeslots for this faculty',
-                                    style: GoogleFonts.poppins(fontSize: 12),
-                                  );
-                                }
-
-                                return _buildDropdown<int>(
-                                  label: 'Timeslot',
-                                  value: _selectedTimeslotId,
-                                  items: filtered.map((t) => t.id!).toList(),
-                                  itemLabel: (id) {
-                                    final t = filtered.firstWhere(
-                                      (t) => t.id == id,
-                                    );
-                                    return CITESchedDateUtils.formatTimeslot(
-                                      t.day,
-                                      t.startTime,
-                                      t.endTime,
-                                    );
-                                  },
-                                  onChanged: (value) => setState(
-                                    () => _selectedTimeslotId = value,
-                                  ),
+                                  ],
                                 );
                               },
                             );
@@ -3577,11 +3847,13 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
     required String label,
     required IconData icon,
     TextInputType? keyboardType,
+    bool readOnly = false,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      readOnly: readOnly,
       validator: validator,
       decoration: InputDecoration(
         labelText: label,

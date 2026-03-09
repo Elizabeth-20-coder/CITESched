@@ -620,6 +620,19 @@ class AdminEndpoint extends Endpoint {
       throw Exception('Student count cannot be negative');
     }
 
+    // Validate selected faculty (optional)
+    if (subject.facultyId != null) {
+      final faculty = await Faculty.db.findById(session, subject.facultyId!);
+      if (faculty == null || !faculty.isActive) {
+        throw Exception('Selected faculty is invalid or inactive');
+      }
+      if (faculty.program != null && faculty.program != subject.program) {
+        throw Exception(
+          'Selected faculty program does not match the subject program.',
+        );
+      }
+    }
+
     // Set timestamps
     subject.createdAt = DateTime.now();
     subject.updatedAt = DateTime.now();
@@ -659,6 +672,19 @@ class AdminEndpoint extends Endpoint {
     // Validate student count
     if (subject.studentsCount < 0) {
       throw Exception('Student count cannot be negative');
+    }
+
+    // Validate selected faculty (optional)
+    if (subject.facultyId != null) {
+      final faculty = await Faculty.db.findById(session, subject.facultyId!);
+      if (faculty == null || !faculty.isActive) {
+        throw Exception('Selected faculty is invalid or inactive');
+      }
+      if (faculty.program != null && faculty.program != subject.program) {
+        throw Exception(
+          'Selected faculty program does not match the subject program.',
+        );
+      }
     }
 
     // Update timestamp
@@ -710,6 +736,20 @@ class AdminEndpoint extends Endpoint {
       throw Exception('Start time must be before end time');
     }
 
+    // Prevent duplicate day/time windows.
+    final duplicate = await _findDuplicateTimeslot(
+      session,
+      day: timeslot.day,
+      startTime: timeslot.startTime,
+      endTime: timeslot.endTime,
+    );
+    if (duplicate != null) {
+      throw Exception(
+        'Timeslot already exists for ${timeslot.day.name.toUpperCase()} '
+        '${timeslot.startTime}-${timeslot.endTime}.',
+      );
+    }
+
     // Set timestamps
     timeslot.createdAt = DateTime.now();
     timeslot.updatedAt = DateTime.now();
@@ -745,6 +785,21 @@ class AdminEndpoint extends Endpoint {
     // Ensure start time is before end time
     if (!_isStartBeforeEnd(timeslot.startTime, timeslot.endTime)) {
       throw Exception('Start time must be before end time');
+    }
+
+    // Prevent duplicate day/time windows (excluding current row).
+    final duplicate = await _findDuplicateTimeslot(
+      session,
+      day: timeslot.day,
+      startTime: timeslot.startTime,
+      endTime: timeslot.endTime,
+    );
+    if (duplicate != null && duplicate.id != timeslot.id) {
+      throw Exception(
+        'Another timeslot already exists for '
+        '${timeslot.day.name.toUpperCase()} '
+        '${timeslot.startTime}-${timeslot.endTime}.',
+      );
     }
 
     // Update timestamp
@@ -955,8 +1010,28 @@ class AdminEndpoint extends Endpoint {
     Session session,
     GenerateScheduleRequest request,
   ) async {
+    final schedulableFacultyIds = await _getSchedulableFacultyIds(session);
+    final filteredFacultyIds = request.facultyIds
+        .where((id) => schedulableFacultyIds.contains(id))
+        .toSet()
+        .toList();
+    if (filteredFacultyIds.isEmpty) {
+      return GenerateScheduleResponse(
+        success: false,
+        message:
+            'No schedulable faculty found in request. Admin-linked faculty cannot be auto-assigned.',
+        totalAssigned: 0,
+        conflictsDetected: 0,
+        unassignedSubjects: request.subjectIds.length,
+      );
+    }
+
+    final sanitizedRequest = request.copyWith(
+      facultyIds: filteredFacultyIds,
+      sections: request.sections.map((s) => s.trim()).where((s) => s.isNotEmpty).toSet().toList(),
+    );
     var schedulingService = SchedulingService();
-    return await schedulingService.generateSchedule(session, request);
+    return await schedulingService.generateSchedule(session, sanitizedRequest);
   }
 
   // ─── Helper Methods ──────────────────────────────────────────────────
@@ -989,6 +1064,21 @@ class AdminEndpoint extends Endpoint {
     } catch (e) {
       return false;
     }
+  }
+
+  Future<Timeslot?> _findDuplicateTimeslot(
+    Session session, {
+    required DayOfWeek day,
+    required String startTime,
+    required String endTime,
+  }) async {
+    return await Timeslot.db.findFirstRow(
+      session,
+      where: (t) =>
+          t.day.equals(day) &
+          t.startTime.equals(startTime) &
+          t.endTime.equals(endTime),
+    );
   }
 
   static const Set<String> _allowedRoomNames = {
@@ -1421,7 +1511,8 @@ class AdminEndpoint extends Endpoint {
   ) async {
     var missing = <String>[];
 
-    var facultyCount = await Faculty.db.count(session);
+    var schedulableFaculty = await _getSchedulableFaculty(session);
+    var facultyCount = schedulableFaculty.length;
     if (facultyCount == 0) missing.add('No faculty members defined');
 
     var subjectCount = await Subject.db.count(session);
@@ -1482,7 +1573,7 @@ class AdminEndpoint extends Endpoint {
     }
 
     // 3. Fetch all entities
-    var allFaculty = await Faculty.db.find(session);
+    var allFaculty = await _getSchedulableFaculty(session);
     var allSubjects = await Subject.db.find(session);
     var allRooms = await Room.db.find(session);
     var allTimeslots = await Timeslot.db.find(session);
@@ -1520,6 +1611,30 @@ class AdminEndpoint extends Endpoint {
       conflictsDetected: conflicts.length,
       unassignedSubjects: result.conflicts?.length ?? 0,
     );
+  }
+
+  Future<Set<int>> _getSchedulableFacultyIds(Session session) async {
+    final faculty = await _getSchedulableFaculty(session);
+    return faculty.map((f) => f.id!).toSet();
+  }
+
+  Future<List<Faculty>> _getSchedulableFaculty(Session session) async {
+    final faculty = await Faculty.db.find(
+      session,
+      where: (t) => t.isActive.equals(true),
+    );
+    if (faculty.isEmpty) return const [];
+
+    final adminRoleRows = await UserRole.db.find(
+      session,
+      where: (t) => t.role.equals('admin'),
+    );
+    final adminUserIds = adminRoleRows.map((r) => r.userId).toSet();
+
+    return faculty.where((f) {
+      final key = (f.userInfoId).toString();
+      return !adminUserIds.contains(key);
+    }).toList();
   }
 
   /// Check if two time ranges overlap.

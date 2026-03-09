@@ -864,6 +864,12 @@ class Protocol extends _i1.SerializationManagerServer {
           dartType: 'int?',
         ),
         _i2.ColumnDefinition(
+          name: 'facultyId',
+          columnType: _i2.ColumnType.bigint,
+          isNullable: true,
+          dartType: 'int?',
+        ),
+        _i2.ColumnDefinition(
           name: 'types',
           columnType: _i2.ColumnType.json,
           isNullable: false,
@@ -901,7 +907,17 @@ class Protocol extends _i1.SerializationManagerServer {
           dartType: 'DateTime',
         ),
       ],
-      foreignKeys: [],
+      foreignKeys: [
+        _i2.ForeignKeyDefinition(
+          constraintName: 'subject_fk_0',
+          columns: ['facultyId'],
+          referenceTable: 'faculty',
+          referenceTableSchema: 'public',
+          referenceColumns: ['id'],
+          onUpdate: _i2.ForeignKeyAction.noAction,
+          onDelete: _i2.ForeignKeyAction.noAction,
+        ),
+      ],
       indexes: [
         _i2.IndexDefinition(
           indexName: 'subject_pkey',

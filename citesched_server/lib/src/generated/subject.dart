@@ -25,6 +25,7 @@ abstract class Subject
     this.hours,
     this.yearLevel,
     this.term,
+    this.facultyId,
     required this.types,
     required this.program,
     required this.studentsCount,
@@ -41,6 +42,7 @@ abstract class Subject
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     required List<_i2.SubjectType> types,
     required _i3.Program program,
     required int studentsCount,
@@ -58,6 +60,7 @@ abstract class Subject
       hours: (jsonSerialization['hours'] as num?)?.toDouble(),
       yearLevel: jsonSerialization['yearLevel'] as int?,
       term: jsonSerialization['term'] as int?,
+      facultyId: jsonSerialization['facultyId'] as int?,
       types: _i4.Protocol().deserialize<List<_i2.SubjectType>>(
         jsonSerialization['types'],
       ),
@@ -92,6 +95,8 @@ abstract class Subject
 
   int? term;
 
+  int? facultyId;
+
   List<_i2.SubjectType> types;
 
   _i3.Program program;
@@ -118,6 +123,7 @@ abstract class Subject
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     List<_i2.SubjectType>? types,
     _i3.Program? program,
     int? studentsCount,
@@ -136,6 +142,7 @@ abstract class Subject
       if (hours != null) 'hours': hours,
       if (yearLevel != null) 'yearLevel': yearLevel,
       if (term != null) 'term': term,
+      if (facultyId != null) 'facultyId': facultyId,
       'types': types.toJson(valueToJson: (v) => v.toJson()),
       'program': program.toJson(),
       'studentsCount': studentsCount,
@@ -156,6 +163,7 @@ abstract class Subject
       if (hours != null) 'hours': hours,
       if (yearLevel != null) 'yearLevel': yearLevel,
       if (term != null) 'term': term,
+      if (facultyId != null) 'facultyId': facultyId,
       'types': types.toJson(valueToJson: (v) => v.toJson()),
       'program': program.toJson(),
       'studentsCount': studentsCount,
@@ -206,6 +214,7 @@ class _SubjectImpl extends Subject {
     double? hours,
     int? yearLevel,
     int? term,
+    int? facultyId,
     required List<_i2.SubjectType> types,
     required _i3.Program program,
     required int studentsCount,
@@ -220,6 +229,7 @@ class _SubjectImpl extends Subject {
          hours: hours,
          yearLevel: yearLevel,
          term: term,
+         facultyId: facultyId,
          types: types,
          program: program,
          studentsCount: studentsCount,
@@ -240,6 +250,7 @@ class _SubjectImpl extends Subject {
     Object? hours = _Undefined,
     Object? yearLevel = _Undefined,
     Object? term = _Undefined,
+    Object? facultyId = _Undefined,
     List<_i2.SubjectType>? types,
     _i3.Program? program,
     int? studentsCount,
@@ -255,6 +266,7 @@ class _SubjectImpl extends Subject {
       hours: hours is double? ? hours : this.hours,
       yearLevel: yearLevel is int? ? yearLevel : this.yearLevel,
       term: term is int? ? term : this.term,
+      facultyId: facultyId is int? ? facultyId : this.facultyId,
       types: types ?? this.types.map((e0) => e0).toList(),
       program: program ?? this.program,
       studentsCount: studentsCount ?? this.studentsCount,
@@ -295,6 +307,11 @@ class SubjectUpdateTable extends _i1.UpdateTable<SubjectTable> {
 
   _i1.ColumnValue<int, int> term(int? value) => _i1.ColumnValue(
     table.term,
+    value,
+  );
+
+  _i1.ColumnValue<int, int> facultyId(int? value) => _i1.ColumnValue(
+    table.facultyId,
     value,
   );
 
@@ -361,6 +378,10 @@ class SubjectTable extends _i1.Table<int?> {
       'term',
       this,
     );
+    facultyId = _i1.ColumnInt(
+      'facultyId',
+      this,
+    );
     types = _i1.ColumnSerializable<List<_i2.SubjectType>>(
       'types',
       this,
@@ -403,6 +424,8 @@ class SubjectTable extends _i1.Table<int?> {
 
   late final _i1.ColumnInt term;
 
+  late final _i1.ColumnInt facultyId;
+
   late final _i1.ColumnSerializable<List<_i2.SubjectType>> types;
 
   late final _i1.ColumnEnum<_i3.Program> program;
@@ -424,6 +447,7 @@ class SubjectTable extends _i1.Table<int?> {
     hours,
     yearLevel,
     term,
+    facultyId,
     types,
     program,
     studentsCount,
