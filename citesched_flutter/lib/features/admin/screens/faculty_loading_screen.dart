@@ -105,14 +105,6 @@ String _subjectNameById(List<Subject> list, int? id) {
   return 'Subject #$id';
 }
 
-Program? _programForSectionId(List<Section> sections, int? sectionId) {
-  if (sectionId == null) return null;
-  for (final section in sections) {
-    if (section.id == sectionId) return section.program;
-  }
-  return null;
-}
-
 Program? _programForFacultyId(List<Faculty> faculties, int? facultyId) {
   if (facultyId == null) return null;
   for (final faculty in faculties) {
@@ -126,6 +118,14 @@ Program? _programForSubjectId(List<Subject> subjects, int? subjectId) {
   for (final subject in subjects) {
     if (subject.id == subjectId) return subject.program;
   }
+  return null;
+}
+
+Program? _programFromStudentCourse(String? course) {
+  if (course == null) return null;
+  final normalized = course.trim().toUpperCase();
+  if (normalized == 'BSIT' || normalized == 'IT') return Program.it;
+  if (normalized == 'BSEMC' || normalized == 'EMC') return Program.emc;
   return null;
 }
 
@@ -1032,6 +1032,8 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                                               ),
                                               child: SingleChildScrollView(
                                                 scrollDirection: Axis.vertical,
+                                                padding:
+                                                    const EdgeInsets.all(16),
                                                 child: DataTable(
                                                   headingRowColor:
                                                       WidgetStateProperty.all(
@@ -1704,6 +1706,15 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
     bool isDark,
   ) {
     final maroonColor = const Color(0xFF4f003b);
+    final headerBg = isDark
+        ? maroonColor.withValues(alpha: 0.22)
+        : maroonColor.withValues(alpha: 0.08);
+    final rowBgA = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final rowBgB =
+        isDark ? const Color(0xFF111827) : const Color(0xFFF9FAFB);
+    final dividerColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
 
     return schedulesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -1809,159 +1820,217 @@ class _FacultyLoadingScreenState extends ConsumerState<FacultyLoadingScreen> {
                 ),
               ],
             ),
-            child: SingleChildScrollView(
+            child: Padding(
               padding: const EdgeInsets.all(16),
-              child: DataTable(
-                columnSpacing: 24,
-                showCheckboxColumn: false,
-                headingRowColor: WidgetStateProperty.all(
-                  maroonColor.withValues(alpha: 0.05),
-                ),
-                columns: [
-                  DataColumn(
-                    label: Text(
-                      'FACULTY NAME',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
                       ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'SUBJECTS',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'UNITS',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'HOURS',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'REMAINING',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'STATUS',
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-                rows: facultyStats.map((stats) {
-                  final f = stats['faculty'] as Faculty;
-                  final hasC = stats['hasConflicts'] as bool;
-                  final remLoad = stats['remainingLoad'] as double;
-
-                  return DataRow(
-                    onSelectChanged: (_) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => FacultyLoadDetailsScreen(
-                            faculty: f,
-                            initialSchedules: schedules
-                                .where((s) => s.facultyId == f.id)
-                                .toList(),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.vertical,
+                          child: DataTable(
+                          columnSpacing: 28,
+                          horizontalMargin: 16,
+                          headingRowHeight: 44,
+                          dataRowMinHeight: 52,
+                          dataRowMaxHeight: 60,
+                          showCheckboxColumn: false,
+                          showBottomBorder: true,
+                          dividerThickness: 0.6,
+                          headingRowColor:
+                              WidgetStateProperty.all(headerBg),
+                          headingTextStyle: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.85)
+                                : Colors.grey[700],
+                            letterSpacing: 0.8,
                           ),
-                        ),
-                      );
-                    },
-                    cells: [
-                      DataCell(
-                        Row(
-                          children: [
-                            if (hasC)
-                              const Icon(
-                                Icons.warning_rounded,
-                                color: Colors.orange,
-                                size: 16,
+                          dataTextStyle: GoogleFonts.poppins(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : Colors.black87,
+                          ),
+                          border: TableBorder(
+                            horizontalInside:
+                                BorderSide(color: dividerColor),
+                            bottom: BorderSide(color: dividerColor),
+                            top: BorderSide(color: dividerColor),
+                          ),
+                          columns: [
+                            DataColumn(
+                              label: Text(
+                                'FACULTY NAME',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
-                            if (hasC) const SizedBox(width: 4),
-                            Text(
-                              f.name,
-                              style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.w600,
+                            ),
+                            DataColumn(
+                              label: Text(
+                                'SUBJECTS',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                'UNITS',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                'HOURS',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                'REMAINING',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                'STATUS',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          stats['assignedSubjects'].toString(),
-                          style: GoogleFonts.poppins(),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          stats['totalUnits'].toString(),
-                          style: GoogleFonts.poppins(),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          '${(stats['totalHours'] as double).toStringAsFixed(1)}h',
-                          style: GoogleFonts.poppins(),
-                        ),
-                      ),
-                      DataCell(
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: remLoad < 0
-                                ? Colors.red.withValues(alpha: 0.1)
-                                : Colors.green.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            remLoad.toStringAsFixed(1),
-                            style: GoogleFonts.poppins(
-                              color: remLoad < 0 ? Colors.red : Colors.green,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        hasC
-                            ? const Icon(Icons.error_outline, color: Colors.red)
-                            : const Icon(
-                                Icons.check_circle_outline,
-                                color: Colors.green,
+                          rows: facultyStats.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final stats = entry.value;
+                            final f = stats['faculty'] as Faculty;
+                            final hasC = stats['hasConflicts'] as bool;
+                            final remLoad = stats['remainingLoad'] as double;
+
+                            return DataRow(
+                              color: WidgetStateProperty.all(
+                                index.isEven ? rowBgA : rowBgB,
                               ),
+                              onSelectChanged: (_) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        FacultyLoadDetailsScreen(
+                                      faculty: f,
+                                      initialSchedules: schedules
+                                          .where((s) => s.facultyId == f.id)
+                                          .toList(),
+                                    ),
+                                  ),
+                                );
+                              },
+                              cells: [
+                                DataCell(
+                                  Row(
+                                    children: [
+                                      if (hasC)
+                                        const Icon(
+                                          Icons.warning_rounded,
+                                          color: Colors.orange,
+                                          size: 16,
+                                        ),
+                                      if (hasC) const SizedBox(width: 4),
+                                      Text(
+                                        f.name,
+                                        style: GoogleFonts.poppins(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    stats['assignedSubjects'].toString(),
+                                    style: GoogleFonts.poppins(),
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    stats['totalUnits'].toString(),
+                                    style: GoogleFonts.poppins(),
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    '${(stats['totalHours'] as double).toStringAsFixed(1)}h',
+                                    style: GoogleFonts.poppins(),
+                                  ),
+                                ),
+                                DataCell(
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: remLoad < 0
+                                          ? Colors.red.withValues(alpha: 0.1)
+                                          : Colors.green.withValues(
+                                                alpha: 0.1,
+                                              ),
+                                      borderRadius:
+                                          BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      remLoad.toStringAsFixed(1),
+                                      style: GoogleFonts.poppins(
+                                        color: remLoad < 0
+                                            ? Colors.red
+                                            : Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  hasC
+                                      ? const Icon(
+                                          Icons.error_outline,
+                                          color: Colors.red,
+                                        )
+                                      : const Icon(
+                                          Icons.check_circle_outline,
+                                          color: Colors.green,
+                                        ),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        ),
                       ),
-                    ],
+                    ),
+                  ),
                   );
-                }).toList(),
+                },
               ),
             ),
           );
@@ -2558,31 +2627,6 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                         error: (error, stack) =>
                             const Text('Error loading subjects'),
                         data: (subjectList) {
-                          final facultyProgram = _programForFacultyId(
-                            ref
-                                .read(facultyListProvider)
-                                .maybeWhen(
-                                  data: (s) => s,
-                                  orElse: () => <Faculty>[],
-                                ),
-                            _selectedFacultyId,
-                          );
-                          final sectionProgram = _programForSectionId(
-                            ref
-                                .read(sectionListProvider)
-                                .maybeWhen(
-                                  data: (s) => s,
-                                  orElse: () => <Section>[],
-                                ),
-                            _selectedSectionId,
-                          );
-                          if (facultyProgram != null &&
-                              sectionProgram != null &&
-                              facultyProgram != sectionProgram) {
-                            return const Text(
-                              'Selected faculty does not match the section program. Choose an aligned faculty.',
-                            );
-                          }
                           if (_selectedFacultyId == null) {
                             return const Text(
                               'Select a faculty member first to see assigned subjects.',
@@ -2629,16 +2673,6 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                           error: (error, stack) =>
                               const Text('Error loading sections'),
                           data: (sections) {
-                            final enrolledSectionIds = students
-                                .where((s) => s.sectionId != null)
-                                .map((s) => s.sectionId!)
-                                .toSet();
-                            final enrolledSectionCodes = students
-                                .map((s) => s.section?.trim())
-                                .whereType<String>()
-                                .where((code) => code.isNotEmpty)
-                                .toSet();
-                            final filteredById = <int, Section>{};
                             final selectedFacultyProgram = _programForFacultyId(
                               ref
                                   .read(facultyListProvider)
@@ -2660,6 +2694,27 @@ class _NewAssignmentModalState extends ConsumerState<_NewAssignmentModal> {
                             final targetProgram =
                                 selectedFacultyProgram ??
                                 selectedSubjectProgram;
+
+                            final eligibleStudents = targetProgram == null
+                                ? students
+                                : students.where(
+                                    (student) =>
+                                        _programFromStudentCourse(
+                                          student.course,
+                                        ) ==
+                                        targetProgram,
+                                  );
+
+                            final enrolledSectionIds = eligibleStudents
+                                .where((s) => s.sectionId != null)
+                                .map((s) => s.sectionId!)
+                                .toSet();
+                            final enrolledSectionCodes = eligibleStudents
+                                .map((s) => s.section?.trim())
+                                .whereType<String>()
+                                .where((code) => code.isNotEmpty)
+                                .toSet();
+                            final filteredById = <int, Section>{};
                             for (final s in sections) {
                               if (s.id != null &&
                                   (enrolledSectionIds.contains(s.id) ||
@@ -3495,11 +3550,43 @@ class _EditAssignmentModalState extends ConsumerState<_EditAssignmentModal> {
                           error: (error, stack) =>
                               const Text('Error loading sections'),
                           data: (sections) {
-                            final enrolledSectionIds = students
+                            final selectedFacultyProgram = _programForFacultyId(
+                              ref
+                                  .read(facultyListProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Faculty>[],
+                                  ),
+                              _selectedFacultyId,
+                            );
+                            final selectedSubjectProgram = _programForSubjectId(
+                              ref
+                                  .read(subjectsProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => <Subject>[],
+                                  ),
+                              _selectedSubjectId,
+                            );
+                            final targetProgram =
+                                selectedFacultyProgram ??
+                                selectedSubjectProgram;
+
+                            final eligibleStudents = targetProgram == null
+                                ? students
+                                : students.where(
+                                    (student) =>
+                                        _programFromStudentCourse(
+                                          student.course,
+                                        ) ==
+                                        targetProgram,
+                                  );
+
+                            final enrolledSectionIds = eligibleStudents
                                 .where((s) => s.sectionId != null)
                                 .map((s) => s.sectionId!)
                                 .toSet();
-                            final enrolledSectionCodes = students
+                            final enrolledSectionCodes = eligibleStudents
                                 .map((s) => s.section?.trim())
                                 .whereType<String>()
                                 .where((code) => code.isNotEmpty)

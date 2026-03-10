@@ -1357,11 +1357,12 @@ class _EditStudentDialog extends StatefulWidget {
 
 class _EditStudentDialogState extends State<_EditStudentDialog> {
   final _formKey = GlobalKey<FormState>();
+  static const List<String> _allowedCourses = ['BSIT', 'BSEMC'];
   late final TextEditingController _nameCtrl;
   late final TextEditingController _emailCtrl;
-  late final TextEditingController _courseCtrl;
   late final TextEditingController _sectionCtrl;
   late final TextEditingController _numberCtrl;
+  late String _selectedCourse;
   bool _isLoading = false;
 
   @override
@@ -1369,32 +1370,54 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.student.name);
     _emailCtrl = TextEditingController(text: widget.student.email);
-    _courseCtrl = TextEditingController(text: widget.student.course);
     _sectionCtrl = TextEditingController(text: widget.student.section ?? '');
     _numberCtrl = TextEditingController(text: widget.student.studentNumber);
+    _selectedCourse = _allowedCourses.contains(widget.student.course.trim().toUpperCase())
+        ? widget.student.course.trim().toUpperCase()
+        : _allowedCourses.first;
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
-    _courseCtrl.dispose();
     _sectionCtrl.dispose();
     _numberCtrl.dispose();
     super.dispose();
+  }
+
+  String _normalizeSectionCode(String input) {
+    final match = RegExp(r'^\s*(\d+)\s*([A-Za-z][A-Za-z0-9]*)\s*$').firstMatch(
+      input,
+    );
+    if (match == null) return input.trim().toUpperCase();
+    return '${match.group(1)!}${match.group(2)!.toUpperCase()}';
+  }
+
+  int? _extractYearLevelFromSection(String input) {
+    final match = RegExp(r'^\s*(\d+)\s*[A-Za-z][A-Za-z0-9]*\s*$').firstMatch(
+      input,
+    );
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
+      final normalizedSection = _sectionCtrl.text.trim().isEmpty
+          ? null
+          : _normalizeSectionCode(_sectionCtrl.text);
       final updated = widget.student.copyWith(
         name: _nameCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
-        course: _courseCtrl.text.trim(),
-        section: _sectionCtrl.text.trim().isEmpty
-            ? null
-            : _sectionCtrl.text.trim(),
+        course: _selectedCourse,
+        yearLevel: normalizedSection == null
+            ? widget.student.yearLevel
+            : (_extractYearLevelFromSection(normalizedSection) ??
+                widget.student.yearLevel),
+        section: normalizedSection,
         studentNumber: _numberCtrl.text.trim(),
         updatedAt: DateTime.now(),
       );
@@ -1567,10 +1590,26 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
                         },
                       ),
                       const SizedBox(height: 14),
-                      TextFormField(
-                        controller: _courseCtrl,
+                      DropdownButtonFormField<String>(
+                        value: _selectedCourse,
                         decoration: field('Course', Icons.school_rounded),
-                        style: GoogleFonts.poppins(color: textPrimary),
+                        items: _allowedCourses
+                            .map(
+                              (course) => DropdownMenuItem<String>(
+                                value: course,
+                                child: Text(
+                                  course,
+                                  style: GoogleFonts.poppins(color: textPrimary),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedCourse = value;
+                          });
+                        },
                         validator: (v) =>
                             v == null || v.isEmpty ? 'Required' : null,
                       ),
@@ -1578,10 +1617,18 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
                       TextFormField(
                         controller: _sectionCtrl,
                         decoration: field(
-                          'Section (optional)',
+                          'Year & Section',
                           Icons.group_rounded,
                         ),
                         style: GoogleFonts.poppins(color: textPrimary),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          final normalized = _normalizeSectionCode(v);
+                          if (_extractYearLevelFromSection(normalized) == null) {
+                            return 'Use format like 3A, 3B, 2A, 2B';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 24),
                       Row(

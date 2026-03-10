@@ -1,7 +1,6 @@
 import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_auth_server/serverpod_auth_server.dart';
 
-import '../auth/scopes.dart';
 import '../generated/protocol.dart';
 import '../services/scheduling_service.dart';
 import '../services/conflict_service.dart';
@@ -16,6 +15,87 @@ class AdminEndpoint extends Endpoint {
 
   @override
   Set<Scope> get requiredScopes => {};
+
+  Program _programFromStudentCourse(String? course) {
+    final normalized = course?.trim().toUpperCase() ?? '';
+    if (normalized == 'BSEMC' || normalized == 'EMC') {
+      return Program.emc;
+    }
+    return Program.it;
+  }
+
+  int _yearLevelFromSectionCode(String? sectionCode, {int fallback = 1}) {
+    final match = RegExp(r'\d+').firstMatch(sectionCode ?? '');
+    if (match == null) return fallback;
+    return int.tryParse(match.group(0)!) ?? fallback;
+  }
+
+  Future<int?> _resolveStudentSectionId(
+    Session session,
+    Student student,
+  ) async {
+    final rawSection = student.section?.trim();
+    if (rawSection == null || rawSection.isEmpty) {
+      return student.sectionId;
+    }
+
+    final program = _programFromStudentCourse(student.course);
+    final parsedYearLevel = _yearLevelFromSectionCode(rawSection, fallback: 0);
+    final yearLevel = parsedYearLevel > 0
+        ? parsedYearLevel
+        : (student.yearLevel > 0 ? student.yearLevel : 1);
+
+    final existingSection = await Section.db.findFirstRow(
+      session,
+      where: (t) =>
+          t.sectionCode.equals(rawSection) &
+          t.program.equals(program) &
+          t.yearLevel.equals(yearLevel),
+    );
+
+    if (existingSection != null) {
+      return existingSection.id;
+    }
+
+    final sameProgramSection = await Section.db.findFirstRow(
+      session,
+      where: (t) =>
+          t.sectionCode.equals(rawSection) & t.program.equals(program),
+    );
+    if (sameProgramSection != null) {
+      return sameProgramSection.id;
+    }
+
+    final newSection = await Section.db.insertRow(
+      session,
+      Section(
+        sectionCode: rawSection,
+        program: program,
+        yearLevel: yearLevel,
+        semester: 1,
+        academicYear: '${DateTime.now().year}-${DateTime.now().year + 1}',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    return newSection.id;
+  }
+
+  Future<void> _repairStudentSectionRelation(
+    Session session,
+    Student student,
+  ) async {
+    if ((student.section?.trim().isEmpty ?? true) || student.id == null) {
+      return;
+    }
+
+    final resolvedSectionId = await _resolveStudentSectionId(session, student);
+    if (resolvedSectionId != null && resolvedSectionId != student.sectionId) {
+      student.sectionId = resolvedSectionId;
+      student.updatedAt = DateTime.now();
+      await Student.db.updateRow(session, student);
+    }
+  }
 
   /// Get aggregated dashboard statistics. ─────────────────────────────────────────────────
 
@@ -320,47 +400,10 @@ class AdminEndpoint extends Endpoint {
       // Set the correct userInfoId
       student.userInfoId = userInfo.id!;
 
-      // Section Synchronization (ensure sectionId is set on create)
-      if (student.sectionId == null &&
-          student.section != null &&
-          student.section!.isNotEmpty) {
-        try {
-          var existingSection = await Section.db.findFirstRow(
-            session,
-            where: (t) => t.sectionCode.equals(student.section!),
-          );
-
-          if (existingSection != null) {
-            student.sectionId = existingSection.id;
-          } else {
-            var prog = Program.it;
-            var year = 1;
-            if (student.section!.toUpperCase().contains('EMC')) {
-              prog = Program.emc;
-            }
-            final yearMatch = RegExp(r'\d').firstMatch(student.section!);
-            if (yearMatch != null) {
-              year = int.parse(yearMatch.group(0)!);
-            }
-
-            final newSection = await Section.db.insertRow(
-              session,
-              Section(
-                sectionCode: student.section!,
-                program: prog,
-                yearLevel: year,
-                semester: 1,
-                academicYear:
-                    '${DateTime.now().year}-${DateTime.now().year + 1}',
-                createdAt: DateTime.now(),
-                updatedAt: DateTime.now(),
-              ),
-            );
-            student.sectionId = newSection.id;
-          }
-        } catch (e) {
-          session.log('Error syncing section during create: $e');
-        }
+      try {
+        student.sectionId = await _resolveStudentSectionId(session, student);
+      } catch (e) {
+        session.log('Error syncing section during create: $e');
       }
 
       // Set timestamps
@@ -379,10 +422,20 @@ class AdminEndpoint extends Endpoint {
     Session session, {
     bool isActive = true,
   }) async {
-    return await Student.db.find(
+    final students = await Student.db.find(
       session,
       where: (t) => t.isActive.equals(isActive),
     );
+
+    for (final student in students) {
+      try {
+        await _repairStudentSectionRelation(session, student);
+      } catch (e) {
+        session.log('Error repairing student section ${student.id}: $e');
+      }
+    }
+
+    return students;
   }
 
   /// Update a student with validation and section synchronization.
@@ -418,44 +471,14 @@ class AdminEndpoint extends Endpoint {
       );
     }
 
-    // Section Synchronization
-    if (student.section != existing.section || student.sectionId == null) {
+    // Keep the section relation aligned with student.course and section code.
+    if (student.section != existing.section ||
+        student.sectionId == null ||
+        student.course != existing.course ||
+        student.yearLevel != existing.yearLevel) {
       if (student.section != null && student.section!.isNotEmpty) {
         try {
-          var existingSection = await Section.db.findFirstRow(
-            session,
-            where: (t) => t.sectionCode.equals(student.section!),
-          );
-
-          if (existingSection != null) {
-            student.sectionId = existingSection.id;
-          } else {
-            // Parse basic info if possible: e.g. "BSIT-3A"
-            var prog = Program.it;
-            var year = 1;
-            if (student.section!.toUpperCase().contains('EMC')) {
-              prog = Program.emc;
-            }
-            final yearMatch = RegExp(r'\d').firstMatch(student.section!);
-            if (yearMatch != null) {
-              year = int.parse(yearMatch.group(0)!);
-            }
-
-            final newSection = await Section.db.insertRow(
-              session,
-              Section(
-                sectionCode: student.section!,
-                program: prog,
-                yearLevel: year,
-                semester: 1,
-                academicYear:
-                    '${DateTime.now().year}-${DateTime.now().year + 1}',
-                createdAt: DateTime.now(),
-                updatedAt: DateTime.now(),
-              ),
-            );
-            student.sectionId = newSection.id;
-          }
+          student.sectionId = await _resolveStudentSectionId(session, student);
         } catch (e) {
           session.log('Error syncing section during update: $e');
         }
@@ -1356,6 +1379,18 @@ class AdminEndpoint extends Endpoint {
 
   /// Get all sections.
   Future<List<Section>> getAllSections(Session session) async {
+    final students = await Student.db.find(
+      session,
+      where: (t) => t.isActive.equals(true),
+    );
+    for (final student in students) {
+      try {
+        await _repairStudentSectionRelation(session, student);
+      } catch (e) {
+        session.log('Error repairing section before getAllSections: $e');
+      }
+    }
+
     return await Section.db.find(session);
   }
 
