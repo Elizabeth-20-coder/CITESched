@@ -885,6 +885,13 @@
         },
         {
           "__className__": "serverpod.ColumnDefinition",
+          "name": "facultyId",
+          "columnType": 6,
+          "isNullable": true,
+          "dartType": "int?"
+        },
+        {
+          "__className__": "serverpod.ColumnDefinition",
           "name": "types",
           "columnType": 8,
           "isNullable": false,
@@ -4492,7 +4499,7 @@
     {
       "__className__": "serverpod.DatabaseMigrationVersion",
       "module": "citesched",
-      "version": "20260309013412502"
+      "version": "20260311044820027"
     },
     {
       "__className__": "serverpod.DatabaseMigrationVersion",

@@ -885,6 +885,13 @@
         },
         {
           "__className__": "serverpod.ColumnDefinition",
+          "name": "facultyId",
+          "columnType": 6,
+          "isNullable": true,
+          "dartType": "int?"
+        },
+        {
+          "__className__": "serverpod.ColumnDefinition",
           "name": "types",
           "columnType": 8,
           "isNullable": false,
